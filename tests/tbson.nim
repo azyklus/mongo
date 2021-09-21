@@ -1,11 +1,8 @@
-## Tests for bson.nim module
-import unittest
+import balls
 
-import nimongo/bson
+import mongo/bson
 
 suite "BSON serializer/deserializer test suite":
-
-  echo "\n BSON serializer/deserializer test suite\n"
 
   test "Creating empty document with constructor":
     let doc = newBsonDocument()
@@ -119,4 +116,3 @@ suite "BSON serializer/deserializer test suite":
     })
 
     check(arr.len == 1)
-
