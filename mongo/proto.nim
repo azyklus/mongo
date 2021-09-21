@@ -1,4 +1,4 @@
-import ../bson
+import mongo/bson
 
 ## Wire protocol codes
 const OP_REPLY* =        1'i32       ## OP_REPLY operation code. Reply to a client request. responseTo is set.

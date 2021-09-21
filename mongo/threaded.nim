@@ -9,10 +9,12 @@ import os
 import streams
 import md5
 import strutils
+
 import scram/client
-import ../bson except `()`
-import ./clientbase
-import ./errors
+
+import mongo/bson except `()`
+import mongo/clientbase
+import mongo/errors
 
 type
   SharedChannel[T] = ptr Channel[T]

@@ -1,7 +1,7 @@
 import os
 import strutils
 import uri
-import ../bson except `()`
+import mongo/bson except `()`
 import writeconcern
 import proto
 

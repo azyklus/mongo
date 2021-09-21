@@ -7,10 +7,12 @@ import uri
 import streams
 import md5
 import strutils
+
 import scram/client
-import ../bson
-import ./clientbase
-import ./errors
+
+import mongo/bson
+import mongo/clientbase
+import mongo/errors
 
 type
   Mongo* = ref object of MongoBase      ## Mongo client object

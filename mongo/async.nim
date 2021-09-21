@@ -8,9 +8,9 @@ import streams
 import md5
 import strutils
 import scram/client
-import ../bson except `()`
-import ./clientbase
-import ./errors
+import mongo/bson except `()`
+import mongo/clientbase
+import mongo/errors
 
 type
   AsyncMongo* = ref object of MongoBase     ## Mongo async client object

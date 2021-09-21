@@ -15,18 +15,19 @@ import strformat
 import mimetypes
 import os
 
-import bson except `()`
+import mongo/bson except `()`
+export bson
 
-import ./private/auth
-import ./private/clientbase
-import ./private/errors
-import ./private/reply
-import ./private/writeconcern
-import ./private/async
+import mongo/auth
+import mongo/clientbase
+import mongo/errors
+import mongo/reply
+import mongo/writeconcern
+import mongo/async
 when compileOption("threads"):
-  import ./private/threaded as sync
+  import mongo/threaded as sync
 else:
-  import ./private/single as sync
+  import mongo/single as sync
 
 randomize()
 
@@ -327,7 +328,7 @@ proc getLastError*(am: AsyncMongo): Future[StatusReply] {.async.} =
 # Insert API    #
 # ============= #
 
-proc insert*(c: Collection[Mongo], documents: seq[Bson], ordered: bool = true, writeConcern: Bson = nil): StatusReply {.discardable.} =
+proc insert*(c: Collection[Mongo], documents: seq[Bson], ordered: bool = true, writeConcern: Bson = nil): StatusReply =
   ## Insert several new documents into MongoDB using one request
 
   # 
@@ -353,7 +354,7 @@ proc insert*(c: Collection[Mongo], documents: seq[Bson], ordered: bool = true, w
 
   return response.toStatusReply(inserted_ids=inserted_ids)
 
-proc insert*(c: Collection[Mongo], document: Bson, ordered: bool = true, writeConcern: Bson = nil): StatusReply {.discardable.} =
+proc insert*(c: Collection[Mongo], document: Bson, ordered: bool = true, writeConcern: Bson = nil): StatusReply =
   ## Insert new document into MongoDB via sync connection
   return c.insert(@[document], ordered, if writeConcern == nil.Bson: c.writeConcern else: writeConcern)
 
@@ -391,7 +392,7 @@ proc insert*(c: Collection[AsyncMongo], document: Bson, ordered: bool = true, wr
 # Update API  #
 # =========== #
 
-proc update*(c: Collection[Mongo], selector: Bson, update: Bson, multi: bool, upsert: bool): StatusReply {.discardable.} =
+proc update*(c: Collection[Mongo], selector: Bson, update: Bson, multi: bool, upsert: bool): StatusReply =
   ## Update MongoDB document[s]
   let
     request = %*{
@@ -456,7 +457,7 @@ proc findAndModify*(c: Collection[AsyncMongo], selector: Bson, sort: Bson, updat
 # Remove API   #
 # ============ #
 
-proc remove*(c: Collection[Mongo], selector: Bson, limit: int = 0, ordered: bool = true, writeConcern: Bson = nil): StatusReply {.discardable.} =
+proc remove*(c: Collection[Mongo], selector: Bson, limit: int = 0, ordered: bool = true, writeConcern: Bson = nil): StatusReply =
   ## Delete document[s] from MongoDB
   let
     request = %*{
@@ -533,7 +534,7 @@ proc dropUser*(db: Database[AsyncMongo], username: string): Future[bool] {.async
 # Authentication #
 # ============== #
 
-proc authenticate*(db: Database[Mongo], username: string, password: string): bool {.discardable.} =
+proc authenticate*(db: Database[Mongo], username: string, password: string): bool =
   ## Authenticate connection (sync): using MONGODB-CR auth method
   if username == "" or password == "":
     return false
@@ -598,7 +599,7 @@ proc `$`*(g: GridFS): string =
   result = g.name
 
 proc uploadFile*[T: Mongo|AsyncMongo](bucket: GridFs[T], f: AsyncFile, filename = "",
-  metadata = null(), chunksize = 255 * 1024): Future[bool] {.async, discardable.} =
+  metadata = null(), chunksize = 255 * 1024): Future[bool] {.async.} =
   ## Upload opened asyncfile with defined chunk size which defaulted at 255 KB
   let foid = genoid()
   let fsize = getFileSize f
@@ -637,7 +638,7 @@ proc uploadFile*[T: Mongo|AsyncMongo](bucket: GridFs[T], f: AsyncFile, filename 
   result = true
 
 proc uploadFile*[T: Mongo|AsyncMongo](bucket: GridFS[T], filename: string,
-  metadata = null(), chunksize = 255 * 1024): Future[bool] {.async, discardable.} =
+  metadata = null(), chunksize = 255 * 1024): Future[bool] {.async.} =
   ## A higher uploadFile which directly open and close file from filename.
   var f: AsyncFile
   try:
@@ -663,7 +664,7 @@ proc uploadFile*[T: Mongo|AsyncMongo](bucket: GridFS[T], filename: string,
 
 proc downloadFile*[T: Mongo|AsyncMongo](bucket: GridFS[T], f: AsyncFile,
   filename = ""): Future[bool]
-  {.async, discardable.} =
+  {.async.} =
   ## Download given filename and write it to f asyncfile. This only download
   ## the latest uploaded file in the same name.
   let q = %*{ "filename": filename }
@@ -694,7 +695,7 @@ proc downloadFile*[T: Mongo|AsyncMongo](bucket: GridFS[T], f: AsyncFile,
   result = true
 
 proc downloadFile*[T: Mongo|AsyncMongo](bucket: GridFS[T], filename: string):
-  Future[bool]{.async, discardable.} =
+  Future[bool]{.async.} =
   ## Higher version for downloadFile. Ensure the destination file path has
   ## writing permission
   var f: AsyncFile

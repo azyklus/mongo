@@ -1,18 +1,4 @@
-nimcache
-mongo
-bson
-mongotest
-bsontest
-query
-nimongotest
-profile_results.txt
-tests/nimongo
-*.save
-Contribute.md
-*.ilk
-*.pdb
-*.exe
-*.cfg
-
-# ignore big blob for gridfs
-*.mkv
+deps
+nimblemeta.json
+bin/
+nim.cfg
