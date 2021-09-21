@@ -24,7 +24,7 @@ const
   RFShardConfigStale*  = 1'i32 shl 2 ## ShardConfigStale. Drivers should ignore this. Only mongos will ever see this set, in which case, it needs to update config from the server.
   RFAwaitCapable*      = 1'i32 shl 3 ## AwaitCapable. Is set when the server supports the AwaitData Query option. If it doesn’t, a client should sleep a little between getMore’s of a Tailable cursor. Mongod version 1.6 supports AwaitData and thus always sets AwaitCapable.
 
-type 
+type
   ClientKind* = enum           ## Kind of client communication type
     ClientKindBase  = 0
     ClientKindSync  = 1
@@ -54,8 +54,8 @@ type
 
   Collection*[T] = ref CollectionObj[T]
   CollectionObj*[T] = object ## MongoDB collection object
-    name:   string
-    db:     Database[T]
+    name: string
+    db*: Database[T]
     client: T
 
   CollectionInfo* = ref CollectionInfoObj
@@ -69,16 +69,16 @@ type
   Cursor*[T] = ref CursorObj[T]
   CursorObj*[T] = object     ## MongoDB cursor: manages queries object lazily
     collection: Collection[T]
-    query:      Bson
-    fields:     seq[string]
+    query: Bson
+    fields: seq[string]
     queryFlags*: int32
-    nskip:      int32
-    nlimit:     int32
+    nskip: int32
+    nlimit: int32
     nbatchSize: int32
-    sorting:    Bson
-    cursorId:   int64
-    count:      int32
-    closed:     bool
+    sorting*: Bson
+    cursorId: int64
+    count: int32
+    closed: bool
 
   GridFS*[T] = ref GridFSObj[T]
   GridFSObj*[T] = object
@@ -86,7 +86,7 @@ type
     name*: string    # bucket name
     files*: Collection[T]
     chunks*: Collection[T]
-  
+
   LockedSocketBase* {.inheritable.} = ref LockedSocketBaseObj
   LockedSocketBaseObj* {.inheritable.} = object
     inuse:         bool
@@ -226,7 +226,7 @@ method init*(ls: LockedSocketBase) {.base.} =
   ls.connected = false
 
 proc inuse*(ls: LockedSocketBase): bool = ls.inuse
-  ## Return inuse 
+  ## Return inuse
 
 proc `inuse=`*(ls: LockedSocketBase, inuse: bool) =
   ## Enable/disable inuse flag for socket
@@ -385,7 +385,7 @@ proc limit*(f: Cursor, numLimit: int32): Cursor {.discardable.} =
   ## Specify number of documents to return from database
   result = f
   result.nlimit = numLimit # Should be negative if hard limit, else soft limit used
-  
+
 proc batchSize*(f: Cursor, numBatchSize: int32): Cursor {.discardable.} =
   ## Specify number of documents in first reply. Conflicts with limit
   result = f

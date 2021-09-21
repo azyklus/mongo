@@ -1,12 +1,12 @@
 when compileOption("threads"):
   {.error: "This module is available only when --threads:off".}
 
-import os
-import net
-import uri
-import streams
-import md5
-import strutils
+import std/os
+import std/net
+import std/uri
+import std/streams
+import std/md5
+import std/strutils
 
 import scram/client
 
@@ -20,7 +20,6 @@ type
 
   LockedSocket = ref object of LockedSocketBase
     sock:          Socket
-
 
 proc newLockedSocket(): LockedSocket =
   ## Constructor for "locked" socket
@@ -37,7 +36,6 @@ proc newMongo*(host: string = "127.0.0.1", port: uint16 = DefaultMongoPort, secu
   result.new()
   result.init(host, port)
   result.initPool()
-  
 
 proc newMongoWithURI*(u: Uri, maxConnections=16): Mongo =
   result.new()
@@ -101,17 +99,17 @@ proc refresh*(f: Cursor[Mongo], lockedSocket: LockedSocket = nil): seq[Bson] =
   if f.isClosed():
     raise newException(CommunicationError, "Cursor can't be closed while requesting")
 
-  var res: string
   let numberToReturn = calcReturnSize(f)
   if f.isClosed():
     return @[]
 
   let reqID = f.connection().nextRequestId()
-  if f.cursorId == 0:
-    res = prepareQuery(f, reqID, numberToReturn, f.nskip)
-  else:
-    res = prepareMore(f, reqID, numberToReturn)
-  
+  var res =
+    if f.cursorId == 0:
+      prepareQuery(f, reqID, numberToReturn, f.nskip)
+    else:
+      prepareMore(f, reqID, numberToReturn)
+
   var ls = lockedSocket
   if ls.isNil:
     ls = f.connection.acquire()
