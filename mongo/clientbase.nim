@@ -20,10 +20,24 @@ const
   Exhaust*         = 1'i32 shl 6 ##
   Partial*         = 1'i32 shl 7 ## Get info only from running shards
 
-  RFCursorNotFound*    = 1'i32       ## CursorNotFound. Is set when getMore is called but the cursor id is not valid at the server. Returned with zero results.
-  RFQueryFailure*      = 1'i32 shl 1 ## QueryFailure. Is set when query failed. Results consist of one document containing an “$err” field describing the failure.
-  RFShardConfigStale*  = 1'i32 shl 2 ## ShardConfigStale. Drivers should ignore this. Only mongos will ever see this set, in which case, it needs to update config from the server.
-  RFAwaitCapable*      = 1'i32 shl 3 ## AwaitCapable. Is set when the server supports the AwaitData Query option. If it doesn’t, a client should sleep a little between getMore’s of a Tailable cursor. Mongod version 1.6 supports AwaitData and thus always sets AwaitCapable.
+  RFCursorNotFound*    = 1'i32       ##
+  ## CursorNotFound. Is set when getMore is called but the cursor id is
+  ## not valid at the server. Returned with zero results.
+
+  RFQueryFailure*      = 1'i32 shl 1 ##
+  ## QueryFailure. Is set when query failed. Results consist of one
+  ## document containing an “$err” field describing the failure.
+
+  RFShardConfigStale*  = 1'i32 shl 2 ##
+  ## ShardConfigStale. Drivers should ignore this. Only mongos will ever
+  ## see this set, in which case, it needs to update config from the
+  ## server.
+
+  RFAwaitCapable*      = 1'i32 shl 3 ##
+  ## AwaitCapable. Is set when the server supports the AwaitData Query
+  ## option. If it doesn’t, a client should sleep a little between
+  ## getMore’s of a Tailable cursor. Mongod version 1.6 supports
+  ## AwaitData and thus always sets AwaitCapable.
 
 type
   ClientKind* = enum           ## Kind of client communication type
@@ -81,13 +95,6 @@ type
     count: int32
     closed: bool
 
-  GridFS*[T] = ref GridFSObj[T]
-  GridFSObj*[T] = object
-    ## GridFS is collection which namespaced to .files and .chunks
-    name*: string    # bucket name
-    files*: Collection[T]
-    chunks*: Collection[T]
-
   LockedSocketBase* {.inheritable.} = ref LockedSocketBaseObj
   LockedSocketBaseObj* {.inheritable.} = object
     inuse:         bool
@@ -120,7 +127,11 @@ method init*(mb: MongoBase, host: string, port: uint16) {.base.} =
   mb.writeConcern = writeConcernDefault()
 
 method init*(b: MongoBase, u: Uri) {.base.} =
-  let port = if u.port.len > 0: parseInt(u.port).uint16 else: DefaultMongoPort
+  let port =
+    if u.port.len > 0:
+      parseInt(u.port).uint16
+    else:
+      DefaultMongoPort
   b.init(u.hostname, port)
   b.username = u.username
   b.password = u.password
@@ -129,29 +140,37 @@ method init*(b: MongoBase, u: Uri) {.base.} =
     b.db = db
   b.needAuth = (b.username != "" and b.db != "")
 
-proc host*(mb: MongoBase): string = mb.host
+proc host*(mb: MongoBase): string =
   ## Connected server host
+  mb.host
 
-proc port*(mb: MongoBase): uint16 = mb.port
+proc port*(mb: MongoBase): uint16 =
   ## Connected server port
+  mb.port
 
-proc username*(mb: MongoBase): string = mb.username
+proc username*(mb: MongoBase): string =
   ## Username to authenticate at Mongo Server
+  mb.username
 
-proc password*(mb: MongoBase): string = mb.password
+proc password*(mb: MongoBase): string =
   ## Password to authenticate at Mongo Server
+  mb.password
 
-proc authDb*(mb: MongoBase): string = mb.db
+proc authDb*(mb: MongoBase): string =
   ## Database for authentication
+  mb.db
 
-proc needsAuth*(mb: MongoBase): bool = mb.needAuth
+proc needsAuth*(mb: MongoBase): bool =
   ## Check if connection needs to be authenticated
+  mb.needAuth
 
-proc queryFlags*(mb: MongoBase): int32 = mb.queryFlags
+proc queryFlags*(mb: MongoBase): int32 =
   ## Query flags perform query flow and connection settings
+  mb.queryFlags
 
-proc `queryFlags=`*(mb: MongoBase, flags: int32) = mb.queryFlags = flags
+proc `queryFlags=`*(mb: MongoBase, flags: int32) =
   ## Query flags perform query flow and connection settings
+  mb.queryFlags = flags
 
 proc nextRequestId*(mb: MongoBase): int32 =
   ## Return next request id for current MongoDB client
@@ -159,55 +178,83 @@ proc nextRequestId*(mb: MongoBase): int32 =
     mb.requestId = (mb.requestId + 1) mod (int32.high - 1'i32)
     result = mb.requestId
 
-proc writeConcern*(mb: MongoBase): WriteConcern = mb.writeConcern
+proc writeConcern*(mb: MongoBase): WriteConcern =
   ## Getter for currently setup client's write concern
+  mb.writeConcern
 
 proc `writeConcern=`*(mb: MongoBase, concern: WriteConcern) =
   ## Set client-wide write concern for sync client
   assert "w" in concern
   mb.writeConcern = concern
 
-proc authenticated*(mb: MongoBase): bool = mb.authenticated
+proc authenticated*(mb: MongoBase): bool =
   ## Query authenticated flag
+  mb.authenticated
 
-proc `authenticated=`*(mb: MongoBase, authenticated: bool) = mb.authenticated = authenticated
+proc `authenticated=`*(mb: MongoBase, authenticated: bool) =
   ## Enable/disable authenticated flag for database
+  mb.authenticated = authenticated
 
-method kind*(mb: MongoBase): ClientKind {.base.} = ClientKindBase
+method kind*(mb: MongoBase): ClientKind {.base.} =
   ## Base Mongo client
+  ClientKindBase
 
-proc tailableCursor*(m: MongoBase, enable: bool = true): MongoBase {.discardable.} =
+proc tailableCursor*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable tailable behaviour for the cursor (cursor is not
   ## removed immediately after the query)
   result = m
-  m.queryFlags = if enable: m.queryFlags or TailableCursor else: m.queryFlags and (not TailableCursor)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or TailableCursor
+    else:
+      m.queryFlags and (not TailableCursor)
 
-proc slaveOk*(m: MongoBase, enable: bool = true): MongoBase {.discardable.} =
+proc slaveOk*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable querying from slaves in replica sets
   result = m
-  m.queryFlags = if enable: m.queryFlags or SlaveOk else: m.queryFlags and (not SlaveOk)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or SlaveOk
+    else:
+      m.queryFlags and (not SlaveOk)
 
-proc noCursorTimeout*(m: MongoBase, enable: bool = true): MongoBase {.discardable.} =
+proc noCursorTimeout*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable cursor idle timeout
   result = m
-  m.queryFlags = if enable: m.queryFlags or NoCursorTimeout else: m.queryFlags and (not NoCursorTimeout)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or NoCursorTimeout
+    else:
+      m.queryFlags and (not NoCursorTimeout)
 
-proc awaitData*(m: MongoBase, enable: bool = true): MongoBase {.discardable.} =
+proc awaitData*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable data waiting behaviour (along with tailable cursor)
   result = m
-  m.queryFlags = if enable: m.queryFlags or AwaitData else: m.queryFlags and (not AwaitData)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or AwaitData
+    else:
+      m.queryFlags and (not AwaitData)
 
-proc exhaust*(m: MongoBase, enable: bool = true): MongoBase {.discardable.} =
+proc exhaust*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disabel exhaust flag which forces database to giveaway
   ## all data for the query in form of "get more" packages.
   result = m
-  m.queryFlags = if enable: m.queryFlags or Exhaust else: m.queryFlags and (not Exhaust)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or Exhaust
+    else:
+      m.queryFlags and (not Exhaust)
 
-proc allowPartial*(m: MongoBase, enable: bool = true): MongoBase {.discardable} =
+proc allowPartial*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable allowance for partial data retrieval from mongos when
   ## one or more shards are down.
   result = m
-  m.queryFlags = if enable: m.queryFlags or Partial else: m.queryFlags and (not Partial)
+  m.queryFlags =
+    if enable:
+      m.queryFlags or Partial
+    else:
+      m.queryFlags and (not Partial)
 
 proc `$`*(m: MongoBase): string =
   ## Return full DSN for the Mongo connection
@@ -226,22 +273,25 @@ method init*(ls: LockedSocketBase) {.base.} =
   ls.authenticated = false
   ls.connected = false
 
-proc inuse*(ls: LockedSocketBase): bool = ls.inuse
+proc inuse*(ls: LockedSocketBase): bool =
   ## Return inuse
+  ls.inuse
 
 proc `inuse=`*(ls: LockedSocketBase, inuse: bool) =
   ## Enable/disable inuse flag for socket
   ls.inuse = inuse
 
-proc authenticated*(ls: LockedSocketBase): bool = ls.authenticated
+proc authenticated*(ls: LockedSocketBase): bool =
   ## Return authenticated
+  ls.authenticated
 
 proc `authenticated=`*(ls: LockedSocketBase, authenticated: bool) =
   ## Enable/disable authenticated flag for socket
   ls.authenticated = authenticated
 
-proc connected*(ls: LockedSocketBase): bool = ls.connected
+proc connected*(ls: LockedSocketBase): bool =
   ## Return connected
+  ls.connected
 
 proc `connected=`*(ls: LockedSocketBase, connected: bool) =
   ## Enable/disable connected flag for socket
@@ -253,7 +303,8 @@ proc `$`*(db: Database): string =
   ## Database name string representation
   return db.name
 
-proc `[]`*[T: MongoBase](db: Database[T], collectionName: string): Collection[T] =
+proc `[]`*[T: MongoBase](db: Database[T];
+                         collectionName: string): Collection[T] =
   ## Retrieves collection from Mongo Database
   result.new()
   result.name = collectionName
@@ -288,7 +339,9 @@ proc newCursor[T](c: Collection[T]): Cursor[T] =
   result.count = 0
   result.closed = false
 
-proc makeQuery*[T: MongoBase](c: Collection[T], query: Bson, fields: seq[string] = @[], maxTime: int32 = 0): Cursor[T] =
+proc makeQuery*[T: MongoBase](c: Collection[T]; query: Bson;
+                              fields: seq[string] = @[];
+                              maxTime: int32 = 0): Cursor[T] =
   ## Create lazy query object to MongoDB that can be actually run
   ## by one of the Find object procedures: `one()` or `all()`.
   result = c.newCursor()
@@ -298,22 +351,26 @@ proc makeQuery*[T: MongoBase](c: Collection[T], query: Bson, fields: seq[string]
     result.query["$maxTimeMS"] = maxTime.toBson()
 
 
-proc db*[T: MongoBase](c: Collection[T]): Database[T] = c.db
+proc db*[T: MongoBase](c: Collection[T]): Database[T] =
   ## Return the database from collection
+  c.db
 
-proc name*(c: Collection): string = c.name
+proc name*(c: Collection): string =
   ## Return name of collection
+  c.name
 
 proc `name=`*(c: Collection, name: string) =
   ## Set new collection name
   c.name = name
 
-proc writeConcern*(c: Collection): WriteConcern = c.client.writeConcern
+proc writeConcern*(c: Collection): WriteConcern =
   ## Return write concern for collection
+  c.client.writeConcern
 
 # === Find API === #
 
-proc prepareQuery*(f: Cursor, requestId: int32, numberToReturn: int32, numberToSkip: int32): string =
+proc prepareQuery*(f: Cursor; requestId: int32; numberToReturn: int32;
+                   numberToSkip: int32): string =
   ## Prepare query and request queries for making OP_QUERY
   var bfields: Bson = newBsonDocument()
   if f.fields.len() > 0:
@@ -344,50 +401,75 @@ proc orderBy*(f: Cursor, order: Bson): Cursor =
   result = f
   f.query["$orderby"] = order
 
-proc tailableCursor*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc tailableCursor*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disable tailable behaviour for the cursor (cursor is not
   ## removed immediately after the query)
   result = f
-  f.queryFlags = if enable: f.queryFlags or TailableCursor else: f.queryFlags and (not TailableCursor)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or TailableCursor
+    else:
+      f.queryFlags and (not TailableCursor)
 
-proc slaveOk*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc slaveOk*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disable querying from slaves in replica sets
   result = f
-  f.queryFlags = if enable: f.queryFlags or SlaveOk else: f.queryFlags and (not SlaveOk)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or SlaveOk
+    else:
+      f.queryFlags and (not SlaveOk)
 
-proc noCursorTimeout*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc noCursorTimeout*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disable cursor idle timeout
   result = f
-  f.queryFlags = if enable: f.queryFlags or NoCursorTimeout else: f.queryFlags and (not NoCursorTimeout)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or NoCursorTimeout
+    else:
+      f.queryFlags and (not NoCursorTimeout)
 
-proc awaitData*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc awaitData*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disable data waiting behaviour (along with tailable cursor)
   result = f
-  f.queryFlags = if enable: f.queryFlags or AwaitData else: f.queryFlags and (not AwaitData)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or AwaitData
+    else:
+      f.queryFlags and (not AwaitData)
 
-proc exhaust*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc exhaust*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disabel exhaust flag which forces database to giveaway
   ## all data for the query in form of "get more" packages.
   result = f
-  f.queryFlags = if enable: f.queryFlags or Exhaust else: f.queryFlags and (not Exhaust)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or Exhaust
+    else:
+      f.queryFlags and (not Exhaust)
 
-proc allowPartial*(f: Cursor, enable: bool = true): Cursor {.discardable.} =
+proc allowPartial*(f: Cursor, enable: bool = true): Cursor =
   ## Enable/disable allowance for partial data retrieval from mongo when
   ## on or more shards are down.
   result = f
-  f.queryFlags = if enable: f.queryFlags or Partial else: f.queryFlags and (not Partial)
+  f.queryFlags =
+    if enable:
+      f.queryFlags or Partial
+    else:
+      f.queryFlags and (not Partial)
 
-proc skip*(f: Cursor, numSkip: int32): Cursor {.discardable.} =
+proc skip*(f: Cursor, numSkip: int32): Cursor =
   ## Specify number of documents from return sequence to skip
   result = f
   result.nskip = numSkip
 
-proc limit*(f: Cursor, numLimit: int32): Cursor {.discardable.} =
+proc limit*(f: Cursor, numLimit: int32): Cursor =
   ## Specify number of documents to return from database
   result = f
-  result.nlimit = numLimit # Should be negative if hard limit, else soft limit used
+  # Should be negative if hard limit, else soft limit used
+  result.nlimit = numLimit
 
-proc batchSize*(f: Cursor, numBatchSize: int32): Cursor {.discardable.} =
+proc batchSize*(f: Cursor, numBatchSize: int32): Cursor =
   ## Specify number of documents in first reply. Conflicts with limit
   result = f
   result.nbatchSize = numBatchSize
@@ -409,31 +491,38 @@ proc updateCount*(f: Cursor, count: int32) =
   ## Increasing the count of returned documents
   f.count += count
 
-proc isClosed*(f: Cursor): bool = f.closed
+proc isClosed*(f: Cursor): bool =
   ## Return status of cursor
+  f.closed
 
 proc close*(f: Cursor) =
   ## Close cursor
   f.closed = true
 
-proc `$`*(f: Cursor): string = $f.query
+proc `$`*(f: Cursor): string =
   ## Return query of cursor as a string
+  $f.query
 
-proc connection*[T: MongoBase](f: Cursor[T]): T = f.collection.client
+proc connection*[T: MongoBase](f: Cursor[T]): T =
   ## Get connection of cursor
+  f.collection.client
 
-proc collection*[T: MongoBase](f: Cursor[T]): Collection[T] = f.collection
+proc collection*[T: MongoBase](f: Cursor[T]): Collection[T] =
   ## Get collection from cursor
+  f.collection
 
-proc cursorId*(f: Cursor): int64 = f.cursorId
+proc cursorId*(f: Cursor): int64 =
   ## Return cursor ID
+  f.cursorId
 
 proc `cursorId=`*(f: Cursor, cursorId: int64) =
   ## Set cursor ID
   f.cursorId = cursorId
 
-proc nskip*(f: Cursor): int32 = f.nskip
+proc nskip*(f: Cursor): int32 =
   ## Return amount of documents to skip
+  f.nskip
 
-proc filter*(f: Cursor): Bson = f.query["$query"]
+proc filter*(f: Cursor): Bson =
   ## Return filter of query from cursor
+  f.query["$query"]
