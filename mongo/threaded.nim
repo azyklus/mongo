@@ -1,14 +1,14 @@
 when not compileOption("threads"):
   {.error: "This module is available only when --threads:on".}
 
-import locks
-import net
-import tables
-import uri
-import os
-import streams
-import md5
-import strutils
+import std/locks
+import std/net
+import std/tables
+import std/uri
+import std/os
+import std/streams
+import std/md5
+import std/strutils
 
 import scram/client
 
@@ -44,10 +44,11 @@ proc newSharedLock(): SharedLock =
   result = cast[SharedLock](allocShared0(sizeof(Lock)))
   initLock(result[])
 
-proc delSharedLock(l: var SharedLock) =
-  deinitLock(l[])
-  deallocShared(l)
-  l = nil
+when false: # unused
+  proc delSharedLock(l: var SharedLock) =
+    deinitLock(l[])
+    deallocShared(l)
+    l = nil
 
 template withRequestLock(body: untyped): untyped =
   m.requestLock[].acquire()

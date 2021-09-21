@@ -1,12 +1,13 @@
-import os
-import strutils
-import uri
+import std/os
+import std/strutils
+import std/uri
+
 import mongo/bson except `()`
-import writeconcern
-import proto
+import mongo/writeconcern
+import mongo/proto
 
 when compileOption("threads"):
-  import locks
+  import std/locks
 
 const
   DefaultMongoHost* = "127.0.0.1"

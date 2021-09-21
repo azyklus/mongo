@@ -1,11 +1,11 @@
-import base64
-import macros
-import md5
-import oids
-import streams
-import strutils
-import times
-import tables
+import std/base64
+import std/macros
+import std/md5
+import std/oids
+import std/streams
+import std/strutils
+import std/times
+import std/tables
 
 # ------------- type: BsonKind -------------------#
 
@@ -444,7 +444,7 @@ template toBson*(b: Bson): Bson = b
     ##
 
 proc toBsonAUX*(keyVals: openArray[tuple[key: string, val: Bson]]): Bson =
-    ## Generic constructor for BSON data.	
+    ## Generic constructor for BSON data.
     result = newBsonDocument()
     for key, val in items(keyVals): result[key] = val
 
@@ -710,7 +710,7 @@ proc newBsonDocument*(s: Stream): Bson =
             sub[] = null()
         of BsonKindRegexp:
             # sub[] = regex(s.readLine().string(), seqCharToString(sorted(s.readLine().string, system.cmp)))
-            sub[] = regex(s.readLine().string(), s.readLine().string)
+            sub[] = regex(readLine s, readLine s)
         of BsonKindDBPointer:
             let
               refcol: string = s.readStr(s.readInt32() - 1)
