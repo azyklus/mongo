@@ -290,7 +290,7 @@ else:
       check(data[0]["iter"].toInt32 == 3.int32)
       data = cur.next()
       check(data.len == 0)
-      checkOk sccoll.drop()
+      check drop sccoll
 
   block:
     ## clean up testing garbage

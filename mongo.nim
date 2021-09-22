@@ -149,15 +149,16 @@ proc drop*(c: Collection[Mongo]): bool =
     result = true
 
 proc stats*(c: Collection[Mongo]): Bson =
-  return c.db["$cmd"].makeQuery(%*{"collStats": c.name}).first
+  c.db["$cmd"].makeQuery(%*{"collStats": c.name}).first
 
 proc len*(c: Collection[Mongo]): int =
   ## Return number of documents in collection
-  return c.db["$cmd"].makeQuery(%*{"count": c.name}).first.getReplyN
+  c.db["$cmd"].makeQuery(%*{"count": c.name}).first.getReplyN
 
 proc len*(f: Cursor[Mongo]): int =
   ## Return number of documents in find query result
-  return f.collection.db["$cmd"].makeQuery(%*{"count": f.collection.name, "query": f.filter}).first.getReplyN
+  f.collection.db["$cmd"].makeQuery(%*{"count": f.collection.name,
+                                       "query": f.filter}).first.getReplyN
 
 proc sort*(f: Cursor[Mongo]; criteria: Bson) =
   ## Setup sorting criteria
