@@ -1,3 +1,4 @@
+import std/options
 import std/md5
 import std/net
 import std/oids
@@ -26,116 +27,136 @@ export sync except acquire, release, refresh
 
 # === Collection API === #
 
-proc find*(c: Collection[Mongo], filter: Bson, fields: seq[string] = @[], maxTime: int32 = 0): Cursor[Mongo] =
+proc find*(c: Collection[Mongo]; filter: Bson; fields: seq[string] = @[];
+           maxTime = 0'i32): Cursor[Mongo] =
   ## Find query
-  result = c.makeQuery(
-    %*{
-      "$query": filter
-    },
-    fields,
-    maxTime
-  )
+  c.makeQuery(%*{ "$query": filter }, fields, maxTime)
 
 # === Find API === #
 
-proc all*(f: Cursor[Mongo]): seq[Bson] =
-  ## Perform MongoDB query and return all matching documents
-  while not f.isClosed():
-    result.add(f.refresh())
-
-proc one*(f: Cursor[Mongo]): Bson =
-  ## Perform MongoDB query and return first matching document
-  let docs = f.limit(1).refresh()
-  if docs.len == 0:
-    raise newException(NotFound, "No documents matching query were found")
-  return docs[0]
-
-proc oneOrNone*(f: Cursor[Mongo]): Bson =
-  ## Perform MongoDB query and return first matching document or
-  ## nil if not found.
-  let docs = f.limit(1).refresh()
-  if docs.len > 0:
-    result = docs[0]
-
 iterator items*(f: Cursor[Mongo]): Bson =
   ## Perform MongoDB query and return iterator for all matching documents
-  while not f.isClosed():
-    let docs = f.refresh()
-    for doc in docs:
+  while not f.isClosed:
+    for doc in f.refresh:
       yield doc
 
 proc next*(f: Cursor[Mongo]): seq[Bson] =
-  ## Perform MongoDB query for next batch of documents
-  return f.refresh()
+  ## Perform MongoDB query and return sequence of all matching documents
+  for doc in f.refresh:
+    result.add doc
+
+proc first*(f: Cursor[Mongo]): Bson =
+  ## Perform MongoDB query and return first matching document
+  for doc in f.limit(1).items:
+    return doc
+  raise NotFound.newException "No documents matching query were found"
+
+proc firstOrNone*(f: Cursor[Mongo]): Option[Bson] =
+  ## Perform MongoDB query and return first matching document, if available.
+  try:
+    result = some f.first
+  except NotFound:
+    discard
 
 proc isMaster*(sm: Mongo): bool =
   ## Perform query in order to check if connected Mongo instance is a master
-  return sm["admin"]["$cmd"].makeQuery(%*{"isMaster": 1}).one()["ismaster"].toBool
+  let doc = sm["admin"]["$cmd"].makeQuery(%*{"isMaster": 1}).first
+  result = doc["ismaster"].toBool
 
-proc listDatabases*(sm: Mongo): seq[string] =
-  ## Return list of databases on the server
-  let response = sm["admin"]["$cmd"].makeQuery(%*{"listDatabases": 1}).one()
-  if response.isReplyOk:
-    for db in response["databases"].items():
-      result.add(db["name"].toString())
+iterator keys*(sm: Mongo): string =
+  ## Iterate over databases on the server
+  let response = sm["admin"]["$cmd"].makeQuery(%*{"listDatabases": 1}).first
+  let status = response.toStatusReply
+  if status.ok:
+    for b in response["databases"].items:
+      yield b["name"].toString
+  else:
+    raise IOError.newException:
+      "unable to fetch databases: " & status.err
 
-proc createCollection*(db: Database[Mongo], name: string, capped: bool = false, autoIndexId: bool = true, maxSize: int = 0, maxDocs: int = 0): StatusReply =
+iterator pairs*(sm: Mongo): tuple[name: string, database: Database[Mongo]] =
+  ## Iterate over databases on the server
+  for name in sm.keys:
+    yield (name: name, database: sm[name])
+
+iterator values*(sm: Mongo): Database[Mongo] =
+  ## Iterate over databases on the server
+  for _, db in sm.pairs:
+    yield db
+
+proc createCollection*(db: Database[Mongo]; name: string; capped = false;
+                       autoIndexId = true; maxSize = 0;
+                       maxDocs = 0): StatusReply =
   ## Create collection inside database via sync connection
   var request = %*{"create": name}
 
-  if capped: request["capped"] = capped.toBson()
-  if autoIndexId: request["autoIndexId"] = true.toBson()
-  if maxSize > 0: request["size"] = maxSize.toBson()
-  if maxDocs > 0: request["max"] = maxDocs.toBson()
+  if capped: request["capped"] = capped.toBson
+  if autoIndexId: request["autoIndexId"] = true.toBson
+  if maxSize > 0: request["size"] = maxSize.toBson
+  if maxDocs > 0: request["max"] = maxDocs.toBson
 
-  let response = db["$cmd"].makeQuery(request).one()
+  let response = db["$cmd"].makeQuery(request).first
   return response.toStatusReply
 
-proc listCollections*(db: Database[Mongo], filter: Bson = %*{}): seq[string] =
+iterator keys*(db: Database[Mongo]; filter: Bson = %*{}): string =
   ## List collections inside specified database
-  let response = db["$cmd"].makeQuery(%*{"listCollections": 1'i32}).one()
-  if response.isReplyOk:
+  let response = db["$cmd"].makeQuery(%*{"listCollections": 1'i32}).first
+  let status = response.toStatusReply
+  if status.ok:
     for col in response["cursor"]["firstBatch"]:
-      result.add(col["name"].toString)
+      yield col["name"].toString
+  else:
+    raise IOError.newException:
+      "unable to fetch collections: " & status.err
 
-proc rename*(c: Collection[Mongo], newName: string, dropTarget: bool = false): StatusReply =
+iterator pairs*(db: Database[Mongo]; filter: Bson = %*{}):
+  tuple[name: string, collection: Collection[Mongo]] =
+  ## List collections inside specified database
+  for name in db.keys(filter = filter):
+    yield (name: name, collection: db[name])
+
+iterator values*(db: Database[Mongo]; filter: Bson = %*{}): Collection[Mongo] =
+  ## List collections inside specified database
+  for _, col in db.pairs(filter = filter):
+    yield col
+
+proc rename*(c: Collection[Mongo]; name: string; dropTarget = false): StatusReply =
   ## Rename collection
   let
     request = %*{
       "renameCollection": $c,
-      "to": "$#.$#" % [c.db.name, newName],
+      "to": "$#.$#" % [c.db.name, name],
       "dropTarget": dropTarget
     }
-    response = c.db.client["admin"]["$cmd"].makeQuery(request).one()
-  c.name = newName
-  return response.toStatusReply
+    response = c.db.client["admin"]["$cmd"].makeQuery(request).first
+  c.name = name
+  result = response.toStatusReply
 
 proc drop*(db: Database[Mongo]): bool =
   ## Drop database from server
-  let response = db["$cmd"].makeQuery(%*{"dropDatabase": 1}).one()
+  let response = db["$cmd"].makeQuery(%*{"dropDatabase": 1}).first
   return response.isReplyOk
 
 proc drop*(c: Collection[Mongo]): tuple[ok: bool, message: string] =
   ## Drop collection from database
-  let response = c.db["$cmd"].makeQuery(%*{"drop": c.name}).one()
+  let response = c.db["$cmd"].makeQuery(%*{"drop": c.name}).first
   let status = response.toStatusReply
   return (ok: status.ok, message: status.err)
 
 proc stats*(c: Collection[Mongo]): Bson =
-  return c.db["$cmd"].makeQuery(%*{"collStats": c.name}).one()
+  return c.db["$cmd"].makeQuery(%*{"collStats": c.name}).first
 
-proc count*(c: Collection[Mongo]): int =
+proc len*(c: Collection[Mongo]): int =
   ## Return number of documents in collection
-  return c.db["$cmd"].makeQuery(%*{"count": c.name}).one().getReplyN
+  return c.db["$cmd"].makeQuery(%*{"count": c.name}).first.getReplyN
 
-proc count*(f: Cursor[Mongo]): int =
+proc len*(f: Cursor[Mongo]): int =
   ## Return number of documents in find query result
-  return f.collection.db["$cmd"].makeQuery(%*{"count": f.collection.name, "query": f.filter}).one().getReplyN
+  return f.collection.db["$cmd"].makeQuery(%*{"count": f.collection.name, "query": f.filter}).first.getReplyN
 
-proc sort*(f: Cursor[Mongo], criteria: Bson): Cursor[Mongo] =
+proc sort*(f: Cursor[Mongo]; criteria: Bson) =
   ## Setup sorting criteria
   f.sorting = criteria
-  return f
 
 proc unique*(f: Cursor[Mongo], key: string): seq[string] =
   ## Force cursor to return only distinct documents by specified field.
@@ -147,29 +168,29 @@ proc unique*(f: Cursor[Mongo], key: string): seq[string] =
       "query": f.filter,
       "key": key
     }
-    response = f.collection.db["$cmd"].makeQuery(request).one()
+    response = f.collection.db["$cmd"].makeQuery(request).first
 
   if response.isReplyOk:
-    for item in response["values"].items():
-      result.add(item.toString())
+    for item in response["values"].items:
+      result.add item.toString
 
 proc getLastError*(m: Mongo): StatusReply =
   ## Get last error happened in current connection
-  let response = m["admin"]["$cmd"].makeQuery(%*{"getLastError": 1'i32}).one()
-  return response.toStatusReply
+  m["admin"]["$cmd"].makeQuery(%*{"getLastError": 1'i32}).first.toStatusReply
 
 # ============= #
 # Insert API    #
 # ============= #
 
-proc insert*(c: Collection[Mongo], documents: seq[Bson], ordered: bool = true, writeConcern: Bson = nil): StatusReply =
+proc insert*(c: Collection[Mongo]; documents: seq[Bson];
+             ordered = true; writeConcern: Bson = nil): StatusReply =
   ## Insert several new documents into MongoDB using one request
 
   #
   # insert any missing _id fields
   #
   var inserted_ids: seq[Bson] = @[]
-  for doc in documents:
+  for doc in documents.items:
     if not doc.contains("_id"):
       doc["_id"] = toBson(genOid())
     inserted_ids.add(doc["_id"])
@@ -182,21 +203,31 @@ proc insert*(c: Collection[Mongo], documents: seq[Bson], ordered: bool = true, w
       "insert": c.name,
       "documents": documents,
       "ordered": ordered,
-      "writeConcern": if writeConcern == nil.Bson: c.writeConcern else: writeConcern
+      "writeConcern":
+        if writeConcern == nil.Bson:
+          c.writeConcern
+        else:
+          writeConcern
     }
-    response = c.db["$cmd"].makeQuery(request).one()
+    response = c.db["$cmd"].makeQuery(request).first
+  result = response.toStatusReply(inserted_ids = inserted_ids)
 
-  return response.toStatusReply(inserted_ids=inserted_ids)
-
-proc insert*(c: Collection[Mongo], document: Bson, ordered: bool = true, writeConcern: Bson = nil): StatusReply =
+proc insert*(c: Collection[Mongo]; document: Bson; ordered = true;
+             writeConcern: Bson = nil): StatusReply =
   ## Insert new document into MongoDB via sync connection
-  return c.insert(@[document], ordered, if writeConcern == nil.Bson: c.writeConcern else: writeConcern)
+  let wc =
+    if writeConcern == nil.Bson:
+      c.writeConcern
+    else:
+      writeConcern
+  result = c.insert(@[document], ordered, writeConcern = wc)
 
 # =========== #
 # Update API  #
 # =========== #
 
-proc update*(c: Collection[Mongo], selector: Bson, update: Bson, multi: bool, upsert: bool): StatusReply =
+proc update*(c: Collection[Mongo]; selector, update: Bson;
+             multi, upsert: bool): StatusReply =
   ## Update MongoDB document[s]
   let
     request = %*{
@@ -204,21 +235,26 @@ proc update*(c: Collection[Mongo], selector: Bson, update: Bson, multi: bool, up
       "updates": [%*{"q": selector, "u": update, "upsert": upsert, "multi": multi}],
       "ordered": true
     }
-    response = c.db["$cmd"].makeQuery(request).one()
-  return response.toStatusReply
+  result = c.db["$cmd"].makeQuery(request).first.toStatusReply
 
 # ==================== #
 # Find and modify API  #
 # ==================== #
 
-proc findAndModify*(c: Collection[Mongo], selector: Bson, sort: Bson, update: Bson, afterUpdate: bool, upsert: bool, writeConcern: Bson = nil, remove: bool = false): StatusReply =
+proc findAndModify*(c: Collection[Mongo]; selector, sort, update: Bson;
+                    afterUpdate, upsert: bool; writeConcern: Bson = nil;
+                    remove = false): StatusReply =
   ## Finds and modifies MongoDB document
   let request = %*{
     "findAndModify": c.name,
     "query": selector,
     "new": afterUpdate,
     "upsert": upsert,
-    "writeConcern": if writeConcern == nil.Bson: c.writeConcern else: writeConcern
+    "writeConcern":
+      if writeConcern == nil.Bson:
+        c.writeConcern
+      else:
+        writeConcern
   }
   if not sort.isNil:
     request["sort"] = sort
@@ -226,8 +262,7 @@ proc findAndModify*(c: Collection[Mongo], selector: Bson, sort: Bson, update: Bs
     request["remove"] = remove.toBson()
   else:
     request["update"] = update
-  let response = c.db["$cmd"].makeQuery(request).one()
-  return response.toStatusReply
+  result = c.db["$cmd"].makeQuery(request).first.toStatusReply
 
 # ============ #
 # Remove API   #
@@ -242,8 +277,7 @@ proc remove*(c: Collection[Mongo], selector: Bson, limit: int = 0, ordered: bool
       "ordered": true,
       "writeConcern": if writeConcern == nil.Bson: c.writeConcern else: writeConcern
     }
-    response = c.db["$cmd"].makeQuery(request).one()
-  return response.toStatusReply
+  result = c.db["$cmd"].makeQuery(request).first.toStatusReply
 
 # =============== #
 # User management
@@ -258,8 +292,7 @@ proc createUser*(db: DataBase[Mongo], username: string, pwd: string, customData:
     "roles": roles,
     "writeConcern": db.client.writeConcern
   }
-  let response = db["$cmd"].makeQuery(createUserRequest).one()
-  return response.isReplyOk
+  result = db["$cmd"].makeQuery(createUserRequest).first.isReplyOk
 
 proc dropUser*(db: Database[Mongo], username: string): bool =
   ## Drop user from the db
@@ -268,28 +301,27 @@ proc dropUser*(db: Database[Mongo], username: string): bool =
       "dropUser": username,
       "writeConcern": db.client.writeConcern
       }
-    response = db["$cmd"].makeQuery(dropUserRequest).one()
-  return response.isReplyOk
+  result = db["$cmd"].makeQuery(dropUserRequest).first.isReplyOk
 
 # ============== #
 # Authentication #
 # ============== #
 
-proc authenticate*(db: Database[Mongo], username: string, password: string): bool =
+proc authenticate*(db: Database[Mongo]; user, pass: string): bool =
   ## Authenticate connection (sync): using MONGODB-CR auth method
-  if username == "" or password == "":
+  if user == "" or pass == "":
     return false
 
-  let nonce = db["$cmd"].makeQuery(%*{"getnonce": 1'i32}).one()["nonce"].toString
-  let passwordDigest = $toMd5("$#:mongo:$#" % [username, password])
-  let key = $toMd5("$#$#$#" % [nonce, username, passwordDigest])
+  let nonce =
+    db["$cmd"].makeQuery(%*{"getnonce": 1'i32}).first["nonce"].toString
+  let passwordDigest = $toMd5("$#:mongo:$#" % [user, pass])
+  let key = $toMd5("$#$#$#" % [nonce, user, passwordDigest])
   let request = %*{
     "authenticate": 1'i32,
     "mechanism": "MONGODB-CR",
-    "user": username,
+    "user": user,
     "nonce": nonce,
     "key": key,
     "autoAuthorize": 1'i32
   }
-  let response = db["$cmd"].makeQuery(request).one()
-  return response.isReplyOk
+  result = db["$cmd"].makeQuery(request).first.isReplyOk

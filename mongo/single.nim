@@ -84,78 +84,88 @@ proc newMongoDatabase*(u: Uri): Database[Mongo] {.deprecated.} =
     result = m[u.path.extractFilename()]
     m.pool[0].authenticated = result.authenticateScramSha1(m.username, m.password, m.pool[0])
 
-proc refresh*(f: Cursor[Mongo], lockedSocket: LockedSocket = nil): seq[Bson] =
-  ## Private procedure for performing actual query to Mongo
+iterator refresh*(f: Cursor[Mongo]; lockedSocket: LockedSocket = nil): Bson =
+  ## Query Mongo and yield results.
+
   template releaseSocket(ls: LockedSocket) =
+    # if lockedSocket was nil, we will have acquired the lock
+    # on `ls` ourselves, so we need to release it here
     if lockedSocket.isNil:
       f.connection.release(ls)
+
   # Template for disconnection handling
   template handleDisconnect(size: int, ls: LockedSocket) =
     if size == 0:
       ls.connected = false
       releaseSocket(ls)
-      raise newException(CommunicationError, "Disconnected from MongoDB server")
+      raise CommunicationError.newException:
+        "Disconnected from MongoDB server"
 
-  if f.isClosed():
-    raise newException(CommunicationError, "Cursor can't be closed while requesting")
+  if f.isClosed:
+    raise CommunicationError.newException:
+      "Cursor can't be closed while requesting"
 
-  let numberToReturn = calcReturnSize(f)
-  if f.isClosed():
-    return @[]
+  let numberToReturn = calcReturnSize f
+  if not f.isClosed:
 
-  let reqID = f.connection().nextRequestId()
-  var res =
-    if f.cursorId == 0:
-      prepareQuery(f, reqID, numberToReturn, f.nskip)
-    else:
-      prepareMore(f, reqID, numberToReturn)
+    let reqID = f.connection().nextRequestId()
+    var res =
+      if f.cursorId == 0:
+        prepareQuery(f, reqID, numberToReturn, f.nskip)
+      else:
+        prepareMore(f, reqID, numberToReturn)
 
-  var ls = lockedSocket
-  if ls.isNil:
-    ls = f.connection.acquire()
-  if ls.sock.trySend(res):
-    var data: string = newStringOfCap(4)
-    var received: int = ls.sock.recv(data, 4)
-    handleDisconnect(received, ls)
-    var stream: Stream = newStringStream(data)
+    var ls =
+      if lockedSocket.isNil:
+        f.connection.acquire()
+      else:
+        lockedSocket
 
-    ## Read data
-    let messageLength: int32 = stream.readInt32() - 4
+    if ls.sock.trySend(res):
+      var data = newStringOfCap(4)
+      var received: int = ls.sock.recv(data, 4)
+      handleDisconnect(received, ls)
+      var stream = newStringStream data
 
-    data = newStringOfCap(messageLength)
-    received = ls.sock.recv(data, messageLength)
-    handleDisconnect(received, ls)
-    stream = newStringStream(data)
+      ## Read data
+      let messageLength: int32 = stream.readInt32() - 4
 
-    discard stream.readInt32()                     ## requestId
-    discard stream.readInt32()                     ## responseTo
-    discard stream.readInt32()                     ## opCode
-    let responceFlags = stream.readInt32()         ## responseFlags
-    let cursorId = stream.readInt64()              ## cursorID
-    discard stream.readInt32()                     ## startingFrom
-    let numberReturned: int32 = stream.readInt32() ## numberReturned
+      data = newStringOfCap(messageLength)
+      received = ls.sock.recv(data, messageLength)
+      handleDisconnect(received, ls)
+      stream = newStringStream(data)
 
-    if f.cursorId == 0 or (f.queryFlags and TailableCursor) == 0:
-      f.cursorId = cursorId
-      if cursorId == 0:
+      discard stream.readInt32()                     ## requestId
+      discard stream.readInt32()                     ## responseTo
+      discard stream.readInt32()                     ## opCode
+      let responceFlags = stream.readInt32()         ## responseFlags
+      let cursorId = stream.readInt64()              ## cursorID
+      discard stream.readInt32()                     ## startingFrom
+      let numberReturned: int32 = stream.readInt32() ## numberReturned
+
+      if f.cursorId == 0 or (f.queryFlags and TailableCursor) == 0:
+        f.cursorId = cursorId
+        if cursorId == 0:
+          f.close()
+      if (responceFlags and RFCursorNotFound) != 0:
         f.close()
-    if (responceFlags and RFCursorNotFound) != 0:
-      f.close()
-    if numberReturned > 0:
-      f.updateCount(numberReturned)
-      for i in 0..<numberReturned:
-        let doc = newBsonDocument(stream)
-        if doc.contains("$err"):
-          if doc["code"].toInt == 50:
+      if numberReturned > 0:
+        f.updateCount(numberReturned)
+        for i in 0..<numberReturned:
+          let doc = newBsonDocument(stream)
+          if doc.contains("$err") and doc["code"].toInt == 50:
             releaseSocket(ls)
-            raise newException(OperationTimeout, "Command " & $f & " has timed out")
-        result.add(doc)
-    elif numberToReturn == 1:
-      releaseSocket(ls)
-      raise newException(NotFound, "No documents matching query were found")
-    else:
-      discard
-  releaseSocket(ls)
+            raise OperationTimeout.newException:
+              "Command $# has timed out" % [ $f ]
+          else:
+            yield doc
+      elif numberToReturn == 1:
+        releaseSocket(ls)
+        raise NotFound.newException:
+          "No documents matching query were found"
+      else:
+        discard
+    releaseSocket(ls)
 
 proc one(f: Cursor[Mongo], ls: LockedSocket): Bson =
   # Internal proc used for sending authentication requests on particular socket
