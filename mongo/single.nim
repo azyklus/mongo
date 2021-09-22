@@ -167,12 +167,11 @@ iterator refresh*(f: Cursor[Mongo]; lockedSocket: LockedSocket = nil): Bson =
         discard
     releaseSocket(ls)
 
-proc one(f: Cursor[Mongo], ls: LockedSocket): Bson =
+proc one(f: Cursor[Mongo]; ls: LockedSocket): Bson =
   # Internal proc used for sending authentication requests on particular socket
-  let docs = f.limit(1).refresh(ls)
-  if docs.len == 0:
-    raise newException(NotFound, "No documents matching query were found")
-  return docs[0]
+  for doc in f.limit(1).refresh(ls):
+    return doc
+  raise NotFound.newException "No documents matching query were found"
 
 proc authenticateScramSha1(db: Database[Mongo], username: string, password: string, ls: LockedSocket): bool {.discardable.} =
   ## Authenticate connection (sync): using SCRAM-SHA-1 auth method
