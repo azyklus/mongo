@@ -11,15 +11,6 @@ import mongo
 template checkOk(s: StatusReply): untyped =
   check s.ok, s.err & "\n" & $s.bson
 
-template checkOk(s: tuple[ok: bool, message: string]): untyped =
-  check s.ok, s.message
-
-template tolerantDrop(o: typed): untyped =
-  let status = drop o
-  case status.ok
-  of true: discard
-  of false: check "ns not found" in status.message
-
 const
   TestDB   = "testdb"
   TestCol  = "testcol"
@@ -91,7 +82,7 @@ suite "User Management":
 
 suite "Mongo collection-level operations":
   setup:
-    checkOk sco.drop()
+    discard drop sco
 
   test "'count' documents in collection":
     checkOk:
@@ -107,12 +98,12 @@ suite "Mongo collection-level operations":
 
   test "'drop' collection":
     check(sco.insert(%*{"svalue": "hello"}))
-    checkOk sco.drop()
+    discard drop sco
     check(sco.find(%*{"svalue": "hello"}).items.toSeq.len == 0)
 
 suite "Mongo client operations test suite":
   setup:
-    tolerantDrop sco
+    discard drop sco
 
   test "Mongo object `$` operator":
     check($sm == "mongodb://127.0.0.1:27017")
@@ -174,7 +165,7 @@ suite "Mongo client operations test suite":
 
 suite "Mongo aggregation commands":
   setup:
-    checkOk drop sco
+    discard drop sco
 
   test "Count documents in query result":
     checkOk sco.insert(@[%*{"string": "value"}, %*{"string": "value"}])
@@ -193,7 +184,7 @@ suite "Mongo aggregation commands":
 
 suite "Mongo client querying test suite":
   setup:
-    checkOk sco.drop()
+    discard drop sco
 
   test "Query single document":
     let myId = genOid()
@@ -237,8 +228,8 @@ suite "Mongo client querying test suite":
 when compileOption"threads":
   suite "Mongo tailable cursor operations (with threads)":
     setup:
-      tolerantDrop sco
-      tolerantDrop sdb["capped"]
+      discard drop sco
+      discard drop sdb["capped"]
 
     test "Read documents from capped collection":
       checkOk sdb.createCollection("capped", capped=true, maxSize=10000)
@@ -267,13 +258,13 @@ when compileOption"threads":
       createThread[Collection[Mongo]](thr[1], readerSync, sccoll)
       createThread[Collection[Mongo]](thr[0], inserterSync, sccoll)
       joinThreads(thr)
-      checkOk drop sccoll
+      discard drop sccoll
 
 else:
   suite "Mongo tailable cursor operations (no threads)":
     setup:
-      tolerantDrop sco
-      tolerantDrop sdb["capped"]
+      discard drop sco
+      discard drop sdb["capped"]
 
     test "Read documents one by one in collection":
       checkOk sdb.createCollection("capped", capped=true, maxSize=10000)
@@ -303,4 +294,4 @@ else:
 
   block:
     ## clean up testing garbage
-    tolerantDrop sco
+    discard drop sco

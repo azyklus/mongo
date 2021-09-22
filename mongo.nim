@@ -71,7 +71,7 @@ iterator keys*(sm: Mongo): string =
     for b in response["databases"].items:
       yield b["name"].toString
   else:
-    raise IOError.newException:
+    raise MongoError.newException:
       "unable to fetch databases: " & status.err
 
 iterator pairs*(sm: Mongo): tuple[name: string, database: Database[Mongo]] =
@@ -106,7 +106,7 @@ iterator keys*(db: Database[Mongo]; filter: Bson = %*{}): string =
     for col in response["cursor"]["firstBatch"]:
       yield col["name"].toString
   else:
-    raise IOError.newException:
+    raise MongoError.newException:
       "unable to fetch collections: " & status.err
 
 iterator pairs*(db: Database[Mongo]; filter: Bson = %*{}):
@@ -134,14 +134,19 @@ proc rename*(c: Collection[Mongo]; name: string; dropTarget = false): StatusRepl
 
 proc drop*(db: Database[Mongo]): bool =
   ## Drop database from server
-  let response = db["$cmd"].makeQuery(%*{"dropDatabase": 1}).first
-  return response.isReplyOk
+  db["$cmd"].makeQuery(%*{"dropDatabase": 1}).first.isReplyOk
 
-proc drop*(c: Collection[Mongo]): tuple[ok: bool, message: string] =
-  ## Drop collection from database
-  let response = c.db["$cmd"].makeQuery(%*{"drop": c.name}).first
-  let status = response.toStatusReply
-  return (ok: status.ok, message: status.err)
+proc drop*(c: Collection[Mongo]): bool =
+  ## Drop collection from database; returns `true` if the database existed,
+  ## `false` otherwise.
+  let status = c.db["$cmd"].makeQuery(%*{"drop": c.name}).first.toStatusReply
+  if not status.ok:
+    if "ns not found" in status.err:
+      result = false
+    else:
+      raise MongoError.newException "collection drop: " & status.err
+  else:
+    result = true
 
 proc stats*(c: Collection[Mongo]): Bson =
   return c.db["$cmd"].makeQuery(%*{"collStats": c.name}).first

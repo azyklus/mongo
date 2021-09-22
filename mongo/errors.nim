@@ -2,14 +2,14 @@ type
   CommunicationError* = object of CatchableError
     ## Raises on communication problems with MongoDB server
 
-  NimongoError* = object of CatchableError
-    ## Base exception for nimongo error (for simplifying error handling)  
+  MongoError* = object of CatchableError
+    ## Base exception for nimongo error (for simplifying error handling)
 
-  NotFound* = object of NimongoError
+  NotFound* = object of MongoError
     ## Raises when querying of one documents returns empty result
 
-  ReplyFieldMissing* = object of NimongoError
+  ReplyFieldMissing* = object of MongoError
     ## Raises when reqired field in reply is missing
 
-  OperationTimeout* = object of NimongoError
-    ## Raises when operation required error occures
+  OperationTimeout* = object of MongoError
+    ## Raises when operation required error occurs
