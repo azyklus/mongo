@@ -1,3 +1,4 @@
+import std/options
 import std/base64
 import std/macros
 import std/md5
@@ -91,8 +92,15 @@ type
 
   GeoPoint = array[0..1, float64]   ## Represents Mongo Geo Point
 
-proc raiseWrongNodeException(bs: Bson) =
-  raise newException(Exception, "Wrong node kind: " & $ord(bs.kind))
+  BsonError* = ValueError
+  BsonKindError* = BsonError
+
+template wrongNodeKind(bs: Bson) =
+  raise BsonKindError.newException "Wrong node kind: " & $bs.kind
+
+template wrongNodeKind(bs: Bson; wanted: untyped) =
+  raise BsonKindError.newException:
+    "Wanted $# but received $#" % [ $(wanted), $bs.kind ]
 
 proc toBson*(x: Oid): Bson =
   ## Convert Mongo Object Id to Bson object
@@ -120,7 +128,7 @@ proc toString*(x: Bson): string =
   of BsonKindStringUTF8:
     result = x.valueString
   else:
-    raiseWrongNodeException(x)
+    wrongNodeKind(x, BsonKindStringUTF8)
 
 proc toBson*(x: int64): Bson =
   ## Convert int64 to Bson object
@@ -134,7 +142,7 @@ proc toInt64*(x: Bson): int64 =
   of BsonKindInt32:
     result = int64(x.valueInt32)
   else:
-    raiseWrongNodeException(x)
+    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toBson*(x: int32): Bson =
   ## Convert int32 to Bson object
@@ -148,7 +156,7 @@ proc toInt32*(x: Bson): int32 =
   of BsonKindInt32:
     result = int32(x.valueInt32)
   else:
-    raiseWrongNodeException(x)
+    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toInt*(x: Bson): int =
   ## Convert Bson to int whether it is int32 or int64
@@ -158,7 +166,7 @@ proc toInt*(x: Bson): int =
   of BsonKindInt32:
     result = int(x.valueInt32)
   else:
-    raiseWrongNodeException(x)
+    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toBson*(x: int): Bson =
   ## Convert int to Bson object
@@ -275,7 +283,7 @@ proc toBytes*(bs: Bson, res: var string) =
       int32ToBytes(int32(bs.valueUserDefined.len), res)
       res &= bs.subtype.char & bs.valueUserDefined
     else:
-      raiseWrongNodeException(bs)
+      wrongNodeKind(bs)
   of BsonKindUndefined:
     discard
   of BsonKindOid:
@@ -304,7 +312,7 @@ proc toBytes*(bs: Bson, res: var string) =
   of BsonKindMinimumKey, BsonKindMaximumKey:
     discard
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs)
 
 proc `$`*(bs: Bson): string
 
@@ -355,7 +363,9 @@ proc `$`*(bs: Bson): string =
       of BsonSubtypeUserDefined:
         return "{\"$$bindata\": \"$#\"}" % [base64.encode(bs.valueUserDefined)]
       else:
-        raiseWrongNodeException(bs)
+        const desired =
+          {BsonSubtypeMd5, BsonSubtypeGeneric, BsonSubtypeUserDefined}
+        wrongNodeKind(bs, desired)
     of BsonKindUndefined:
       return "undefined"
     of BsonKindOid:
@@ -386,7 +396,7 @@ proc `$`*(bs: Bson): string =
     of BsonKindMaximumKey:
       return "{\"$$maxkey\": 1}"
     else:
-      raiseWrongNodeException(bs)
+      wrongNodeKind(bs)
   return stringify(bs, "")
 
 proc initBsonDocument*(): Bson {.deprecated.}=
@@ -413,21 +423,21 @@ proc `[]`*(bs: Bson, key: string): Bson =
   if bs.kind == BsonKindDocument:
     result = bs.valueDocument.getOrDefault(key)
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, BsonKindDocument)
 
 proc `[]=`*(bs: Bson, key: string, value: Bson) =
   ## Modify Bson document field
   if bs.kind == BsonKindDocument:
     bs.valueDocument[key] = value
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, BsonKindDocument)
 
 proc `[]`*(bs: Bson, key: int): Bson =
   ## Get Bson array item by index
   if bs.kind == BsonKindArray:
     result = bs.valueArray[key]
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, BsonKindArray)
 
 proc `[]=`*(bs: Bson, key: int, value: Bson) =
   ## Modify Bson array element
@@ -522,9 +532,12 @@ proc binstr*(x: Bson): string =
     of BsonSubtypeUuid:        return x.valueUuid
     of BsonSubtypeUserDefined: return x.valueUserDefined
     else:
-      raiseWrongNodeException(x)
+      const desired =
+        {BsonSubtypeGeneric, BsonSubtypeFunction, BsonSubtypeBinaryOld,
+         BsonSubtypeUuidOld, BsonSubtypeUuid, BsonSubtypeUserDefined}
+      wrongNodeKind(x, desired)
   else:
-    raiseWrongNodeException(x)
+    wrongNodeKind(x, BsonKindBinary)
 
 proc binuser*(bindata: string): Bson =
   ## Create new binray Bson object with 'user-defined' subtype
@@ -541,12 +554,13 @@ proc timeUTC*(time: Time): Bson =
   Bson(kind: BsonKindTimeUTC, valueTime: time)
 
 proc len*(bs: Bson):int =
-  if bs.kind == BsonKindArray:
+  case bs.kind
+  of BsonKindArray:
     result = bs.valueArray.len
-  elif bs.kind == BsonKindDocument:
+  of BsonKindDocument:
     result = bs.valueDocument.len
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, {BsonKindArray, BsonKindDocument})
 
 proc add*[T](bs: Bson, value: T): Bson {.discardable.} =
   result = bs
@@ -556,30 +570,25 @@ proc del*(bs: Bson, key: string) =
   if bs.kind == BsonKindDocument:
     bs.valueDocument.del(key)
   else:
-    raiseWrongNodeException(bs)
-
-proc delete*(bs: Bson, idx: int) =
-  if bs.kind == BsonKindArray:
-    bs.valueArray.delete(idx)
-  else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, BsonKindDocument)
 
 proc del*(bs: Bson, idx: int) =
   if bs.kind == BsonKindArray:
     bs.valueArray.del(idx)
   else:
-    raiseWrongNodeException(bs)
+    wrongNodeKind(bs, BsonKindArray)
 
-proc `{}`*(bs: Bson, keys: varargs[string]): Bson =
-  var b = bs
+proc `{}`*(b: Bson, keys: varargs[string]): Option[Bson] =
+  var b = b
   for k in keys:
     if b.kind == BsonKindDocument:
-      b = b.valueDocument.getOrDefault(k)
-      if b.isNil:
-        return nil
+      try:
+        b = b.valueDocument[k]
+      except KeyError:
+        return none Bson
     else:
-      return nil
-  return b
+      return none Bson
+  result = some b
 
 proc `{}=`*(bs: Bson, keys: varargs[string], value: Bson) =
   var bs = bs
@@ -640,7 +649,7 @@ proc newBsonDocument*(s: Stream): Bson =
       doc.valueArray.add(nil)
       sub = addr doc.valueArray[^1]
     else:
-      assert(false, "Internal error")
+      wrongNodeKind(doc, {BsonKindArray, BsonKindDocument})
 
     case kind:
     of BsonKindDouble:
@@ -677,7 +686,7 @@ proc newBsonDocument*(s: Stream): Bson =
       of BsonSubtypeUuid:
         sub[] = bin(buf)
       else:
-        raise newException(Exception, "Unexpected subtype: " & $(st.int))
+        raise BsonError.newException "Unexpected subtype: " & $(st.int)
     of BsonKindUndefined:
       sub[] = undefined()
     of BsonKindOid:
@@ -714,7 +723,7 @@ proc newBsonDocument*(s: Stream): Bson =
     of BsonKindMaximumKey:
       sub[] = maxkey()
     else:
-      raise newException(Exception, "Unexpected kind: " & $kind)
+      raise BsonError.newException "Unexpected kind: " & $kind
 
 when false:
   proc initBsonDocument*(stream: Stream): Bson {.deprecated.} =
@@ -766,15 +775,14 @@ proc to*(b: Bson, T: typedesc): T =
       result[k] = v.to(type(result.valAUXType))
   elif T is ref object:
     if b.kind == BsonKindNull:
-        result = nil
-        return
+      return nil
     result.new()
     for k, val in fieldPairs(result[]):
       var key = k
       when val.hasCustomPragma(dbKey):
         key = val.getCustomPragmaVal(dbKey)
       if key notin b:
-        raise newException(Exception, "Key " & key & " not found for " & $T)
+        raise BsonError.newException "Key " & key & " not found for " & $T
       val = b[key].to(type(val))
   elif T is object|tuple:
     for k, val in fieldPairs(result):
@@ -782,7 +790,7 @@ proc to*(b: Bson, T: typedesc): T =
       when val.hasCustomPragma(dbKey):
         key = val.getCustomPragmaVal(dbKey)
       if key notin b:
-        raise newException(Exception, "Key " & key & " not found for " & $T)
+        raise BsonError.newException "Key " & key & " not found for " & $T
       val = b[key].to(type(val))
   else:
     {.error: "Unknown type".}
