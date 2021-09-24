@@ -469,8 +469,17 @@ proc toBson(x: NimNode): NimNode {.compileTime.} =
     result = newCall("toBsonAUX", result)
 
   of nnkCurly:
-    result = newCall("newBsonDocument")
-    x.expectLen(0)
+    case x.len
+    of 0:
+      result = newCall("newBsonDocument")
+    of 2:
+      # hack to handle compile-time construction bug
+      result =
+        toBson:
+          nnkTableConstr.newTree:
+            nnkExprColonExpr.newTree(x[0], x[1])
+    else:
+      x.expectLen(0)
 
   else:
     result = newCall("toBson", x)
