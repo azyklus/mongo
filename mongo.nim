@@ -86,7 +86,7 @@ iterator values*(sm: Mongo): Database[Mongo] =
 
 proc createCollection*(db: Database[Mongo]; name: string; capped = false;
                        autoIndexId = true; maxSize = 0;
-                       maxDocs = 0): StatusReply =
+                       maxDocs = 0): StatusReply {.deprecated.} =
   ## Create collection inside database via sync connection
   var request = %*{"create": name}
 
@@ -160,11 +160,11 @@ proc len*(f: Cursor[Mongo]): int =
   f.collection.db["$cmd"].makeQuery(%*{"count": f.collection.name,
                                        "query": f.filter}).first.getReplyN
 
-proc sort*(f: Cursor[Mongo]; criteria: Bson) =
+proc sort*(f: Cursor[Mongo]; criteria: Bson) {.deprecated.} =
   ## Setup sorting criteria
   f.sorting = criteria
 
-proc unique*(f: Cursor[Mongo], key: string): seq[string] =
+proc unique*(f: Cursor[Mongo], key: string): seq[string] {.deprecated.} =
   ## Force cursor to return only distinct documents by specified field.
   ## Corresponds to '.distinct()' MongoDB command. If Nim we use 'unique'
   ## because 'distinct' is Nim's reserved keyword.
@@ -189,7 +189,7 @@ proc getLastError*(m: Mongo): StatusReply =
 # ============= #
 
 proc insert*(c: Collection[Mongo]; documents: seq[Bson];
-             ordered = true; writeConcern: Bson = nil): StatusReply =
+             ordered = true; writeConcern: Bson = nil): StatusReply {.deprecated.} =
   ## Insert several new documents into MongoDB using one request
 
   #
@@ -219,7 +219,7 @@ proc insert*(c: Collection[Mongo]; documents: seq[Bson];
   result = response.toStatusReply(inserted_ids = inserted_ids)
 
 proc insert*(c: Collection[Mongo]; document: Bson; ordered = true;
-             writeConcern: Bson = nil): StatusReply =
+             writeConcern: Bson = nil): StatusReply {.deprecated.} =
   ## Insert new document into MongoDB via sync connection
   let wc =
     if writeConcern == nil.Bson:
@@ -233,12 +233,17 @@ proc insert*(c: Collection[Mongo]; document: Bson; ordered = true;
 # =========== #
 
 proc update*(c: Collection[Mongo]; selector, update: Bson;
-             multi, upsert: bool): StatusReply =
+             multi, upsert: bool): StatusReply {.deprecated.} =
   ## Update MongoDB document[s]
   let
     request = %*{
       "update": c.name,
-      "updates": [%*{"q": selector, "u": update, "upsert": upsert, "multi": multi}],
+      "updates": [%*{
+        "q": selector,
+        "u": update,
+        "upsert": upsert,
+        "multi": multi,
+      }],
       "ordered": true
     }
   result = c.db["$cmd"].makeQuery(request).first.toStatusReply
@@ -249,7 +254,7 @@ proc update*(c: Collection[Mongo]; selector, update: Bson;
 
 proc findAndModify*(c: Collection[Mongo]; selector, sort, update: Bson;
                     afterUpdate, upsert: bool; writeConcern: Bson = nil;
-                    remove = false): StatusReply =
+                    remove = false): StatusReply {.deprecated.} =
   ## Finds and modifies MongoDB document
   let request = %*{
     "findAndModify": c.name,
@@ -274,7 +279,7 @@ proc findAndModify*(c: Collection[Mongo]; selector, sort, update: Bson;
 # Remove API   #
 # ============ #
 
-proc remove*(c: Collection[Mongo], selector: Bson, limit: int = 0, ordered: bool = true, writeConcern: Bson = nil): StatusReply =
+proc remove*(c: Collection[Mongo], selector: Bson, limit: int = 0, ordered: bool = true, writeConcern: Bson = nil): StatusReply {.deprecated.} =
   ## Delete document[s] from MongoDB
   let
     request = %*{
