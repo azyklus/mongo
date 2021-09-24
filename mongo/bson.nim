@@ -831,6 +831,8 @@ proc toBson*[T](entry: T): Bson =
     result = toBson(entry.int32)
   elif T is uint64:
     result = toBson(entry.int64)
+  elif T is BsonKind:
+    result = toBson(ord entry)
   else:
     {.error: "toBson " & $T & " can't serialize".}
 
