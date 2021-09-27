@@ -458,13 +458,13 @@ proc `[]=`*(bs: Bson, key: int, value: Bson) =
 
 template toBson*(b: Bson): Bson = b
 
-proc add*[T](bs: var Bson, value: T) =
+proc add*[T](bs: Bson, value: T) =
   if bs.kind == BsonKindArray:
     bs.valueArray.add value.toBson
   else:
     wrongKind(bs, BsonKindArray)
 
-proc add*[T](bs: var Bson; key: string; value: T) =
+proc add*[T](bs: Bson; key: string; value: T) =
   if bs.kind == BsonKindDocument:
     bs.valueDocument.add(key, value.toBson)
   else:
