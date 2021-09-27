@@ -109,7 +109,7 @@ suite "BSON serializer/deserializer test suite":
     check(b["field2"][0]["ar0"].toString == "1")
 
   test "array length":
-    let arr = newBsonArray()
+    var arr = newBsonArray()
     arr.add(%*{
       "field3": "value2",
       "field0": 5'i32

@@ -571,9 +571,8 @@ proc len*(bs: Bson):int =
   else:
     wrongNodeKind(bs, {BsonKindArray, BsonKindDocument})
 
-proc add*[T](bs: Bson, value: T): Bson {.discardable.} =
-  result = bs
-  result.valueArray.add(value.toBson())
+proc add*[T](bs: var Bson, value: T) =
+  bs.valueArray.add(value.toBson())
 
 proc del*(bs: Bson, key: string) =
   if bs.kind == BsonKindDocument:
@@ -904,6 +903,6 @@ when isMainModule:
   echo "RECOVERED: ", recovered
 
   var bdoc2 = newBsonArray()
-  bdoc2 = bdoc2.add(2)
-  bdoc2 = bdoc2.add(2)
+  bdoc2.add(2)
+  bdoc2.add(2)
   echo bdoc2
