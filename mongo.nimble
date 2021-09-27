@@ -8,4 +8,4 @@ requires "https://github.com/c-blake/adix < 1.0.0"
 requires "https://github.com/disruptek/assume > 0.3.0 & < 1.0.0"
 
 when not defined(release):
-  requires "https://github.com/disruptek/balls > 3.5.0 & < 4.0.0"
+  requires "https://github.com/disruptek/balls == 3.5.0"
