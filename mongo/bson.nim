@@ -8,6 +8,18 @@ import std/strutils
 import std/times
 import std/tables
 
+const mongoAdix {.booldefine.} = true  # it's only used once, below
+when mongoAdix:
+  import pkg/adix/lptabz
+
+  type TableLike[A, B] = LPTabz[A, B, int8, 0]
+  template initTableLike[A, B](size: Natural = 4): TableLike[A, B] =
+    initLPTabz[A, B, int8, 0](size)
+else:
+  type TableLike[A, B] = OrderedTable[A, B]
+  template initTableLike[A, B](size: Natural = 4): TableLike[A, B] =
+    initOrderedTable[A, B](size)
+
 # ------------- type: BsonKind -------------------#
 
 type BsonKind* = char
@@ -57,7 +69,7 @@ type
     case kind*: BsonKind
     of BsonKindDouble:           valueFloat64:     float64
     of BsonKindStringUTF8:       valueString:      string
-    of BsonKindDocument:         valueDocument:    OrderedTable[string, Bson]
+    of BsonKindDocument:         valueDocument:    TableLike[string, Bson]
     of BsonKindArray:            valueArray:       seq[Bson]
     of BsonKindBinary:
       case subtype:                                BsonSubtype
@@ -95,10 +107,10 @@ type
   BsonError* = ValueError
   BsonKindError* = BsonError
 
-template wrongNodeKind(bs: Bson) =
+template wrongKind(bs: Bson) =
   raise BsonKindError.newException "Wrong node kind: " & $bs.kind
 
-template wrongNodeKind(bs: Bson; wanted: untyped) =
+template wrongKind(bs: Bson; wanted: untyped) =
   raise BsonKindError.newException:
     "Wanted $# but received $#" % [ $(wanted), $bs.kind ]
 
@@ -128,7 +140,7 @@ proc toString*(x: Bson): string =
   of BsonKindStringUTF8:
     result = x.valueString
   else:
-    wrongNodeKind(x, BsonKindStringUTF8)
+    wrongKind(x, BsonKindStringUTF8)
 
 proc toBson*(x: int64): Bson =
   ## Convert int64 to Bson object
@@ -142,7 +154,7 @@ proc toInt64*(x: Bson): int64 =
   of BsonKindInt32:
     result = int64(x.valueInt32)
   else:
-    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
+    wrongKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toBson*(x: int32): Bson =
   ## Convert int32 to Bson object
@@ -156,7 +168,7 @@ proc toInt32*(x: Bson): int32 =
   of BsonKindInt32:
     result = int32(x.valueInt32)
   else:
-    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
+    wrongKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toInt*(x: Bson): int =
   ## Convert Bson to int whether it is int32 or int64
@@ -166,7 +178,7 @@ proc toInt*(x: Bson): int =
   of BsonKindInt32:
     result = int(x.valueInt32)
   else:
-    wrongNodeKind(x, {BsonKindInt32, BsonKindInt64})
+    wrongKind(x, {BsonKindInt32, BsonKindInt64})
 
 proc toBson*(x: int): Bson =
   ## Convert int to Bson object
@@ -283,7 +295,7 @@ proc toBytes*(bs: Bson, res: var string) =
       int32ToBytes(int32(bs.valueUserDefined.len), res)
       res &= bs.subtype.char & bs.valueUserDefined
     else:
-      wrongNodeKind(bs)
+      wrongKind(bs)
   of BsonKindUndefined:
     discard
   of BsonKindOid:
@@ -312,7 +324,7 @@ proc toBytes*(bs: Bson, res: var string) =
   of BsonKindMinimumKey, BsonKindMaximumKey:
     discard
   else:
-    wrongNodeKind(bs)
+    wrongKind(bs)
 
 proc `$`*(bs: Bson): string
 
@@ -365,7 +377,7 @@ proc `$`*(bs: Bson): string =
       else:
         const desired =
           {BsonSubtypeMd5, BsonSubtypeGeneric, BsonSubtypeUserDefined}
-        wrongNodeKind(bs, desired)
+        wrongKind(bs, desired)
     of BsonKindUndefined:
       return "undefined"
     of BsonKindOid:
@@ -396,48 +408,48 @@ proc `$`*(bs: Bson): string =
     of BsonKindMaximumKey:
       return "{\"$$maxkey\": 1}"
     else:
-      wrongNodeKind(bs)
+      wrongKind(bs)
   return stringify(bs, "")
 
-proc initBsonDocument*(): Bson {.deprecated.}=
-  ## Create new top-level Bson document
-  Bson(kind: BsonKindDocument, valueDocument: initOrderedTable[string, Bson]())
+proc initBsonDocument*(): Bson =
+  ## Create new Bson document
+  Bson(kind: BsonKindDocument, valueDocument: initTableLike[string, Bson]())
 
-proc newBsonDocument*(): Bson =
+proc newBsonDocument*(): Bson {.deprecated.} =
   ## Create new empty Bson document
-  Bson(kind: BsonKindDocument, valueDocument: initOrderedTable[string, Bson]())
+  initBsonDocument()
 
-proc newBsonArray*(): Bson =
+proc initBsonArray*(): Bson =
   ## Create new Bson array
   Bson(kind: BsonKindArray, valueArray: newSeq[Bson]())
 
-proc initBsonArray*(): Bson {.deprecated.} =
+proc newBsonArray*(): Bson {.deprecated.} =
   ## Create new Bson array
-  newBsonArray()
+  initBsonArray()
 
 template B*: untyped =
-  newBsonDocument()
+  initBsonDocument()
 
 proc `[]`*(bs: Bson, key: string): Bson =
   ## Get Bson document field
   if bs.kind == BsonKindDocument:
     result = bs.valueDocument.getOrDefault(key)
   else:
-    wrongNodeKind(bs, BsonKindDocument)
+    wrongKind(bs, BsonKindDocument)
 
 proc `[]=`*(bs: Bson, key: string, value: Bson) =
   ## Modify Bson document field
   if bs.kind == BsonKindDocument:
     bs.valueDocument[key] = value
   else:
-    wrongNodeKind(bs, BsonKindDocument)
+    wrongKind(bs, BsonKindDocument)
 
 proc `[]`*(bs: Bson, key: int): Bson =
   ## Get Bson array item by index
   if bs.kind == BsonKindArray:
     result = bs.valueArray[key]
   else:
-    wrongNodeKind(bs, BsonKindArray)
+    wrongKind(bs, BsonKindArray)
 
 proc `[]=`*(bs: Bson, key: int, value: Bson) =
   ## Modify Bson array element
@@ -446,11 +458,23 @@ proc `[]=`*(bs: Bson, key: int, value: Bson) =
 
 template toBson*(b: Bson): Bson = b
 
+proc add*[T](bs: var Bson, value: T) =
+  if bs.kind == BsonKindArray:
+    bs.valueArray.add value.toBson
+  else:
+    wrongKind(bs, BsonKindArray)
+
+proc add*[T](bs: var Bson; key: string; value: T) =
+  if bs.kind == BsonKindDocument:
+    bs.valueDocument.add(key, value.toBson)
+  else:
+    wrongKind(bs, BsonKindDocument)
+
 proc toBsonAUX*(keyVals: openArray[tuple[key: string, val: Bson]]): Bson =
   ## Generic constructor for BSON data.
   result = newBsonDocument()
   for key, val in items(keyVals):
-    result[key] = val
+    result.add(key, val)
 
 proc toBson(x: NimNode): NimNode {.compileTime.} =
   ## Convert NimNode into BSON document
@@ -489,12 +513,12 @@ macro `%*`*(x: untyped): Bson =
   toBson(x)
 
 template B*(key: string, val: Bson): Bson =  ## Shortcut for `newBsonDocument`
-  let b = newBsonDocument()
+  let b = initBsonDocument()
   b[key] = val
   b
 
 template B*[T](key: string, values: seq[T]): Bson =
-  let b = newBsonDocument()
+  let b = initBsonDocument()
   b[key] = values
   b
 
@@ -533,7 +557,7 @@ proc bin*(bindata: string): Bson =
 
 proc binstr*(x: Bson): string =
   if x.kind == BsonKindBinary:
-    case x.subtype:
+    case x.subtype
     of BsonSubtypeGeneric:     return x.valueGeneric
     of BsonSubtypeFunction:    return x.valueFunction
     of BsonSubtypeBinaryOld:   return x.valueBinOld
@@ -544,9 +568,9 @@ proc binstr*(x: Bson): string =
       const desired =
         {BsonSubtypeGeneric, BsonSubtypeFunction, BsonSubtypeBinaryOld,
          BsonSubtypeUuidOld, BsonSubtypeUuid, BsonSubtypeUserDefined}
-      wrongNodeKind(x, desired)
+      wrongKind(x, desired)
   else:
-    wrongNodeKind(x, BsonKindBinary)
+    wrongKind(x, BsonKindBinary)
 
 proc binuser*(bindata: string): Bson =
   ## Create new binray Bson object with 'user-defined' subtype
@@ -562,29 +586,26 @@ proc timeUTC*(time: Time): Bson =
   ## Create UTC datetime Bson object.
   Bson(kind: BsonKindTimeUTC, valueTime: time)
 
-proc len*(bs: Bson):int =
+proc len*(bs: Bson): int =
   case bs.kind
   of BsonKindArray:
     result = bs.valueArray.len
   of BsonKindDocument:
     result = bs.valueDocument.len
   else:
-    wrongNodeKind(bs, {BsonKindArray, BsonKindDocument})
-
-proc add*[T](bs: var Bson, value: T) =
-  bs.valueArray.add(value.toBson())
+    wrongKind(bs, {BsonKindArray, BsonKindDocument})
 
 proc del*(bs: Bson, key: string) =
   if bs.kind == BsonKindDocument:
     bs.valueDocument.del(key)
   else:
-    wrongNodeKind(bs, BsonKindDocument)
+    wrongKind(bs, BsonKindDocument)
 
 proc del*(bs: Bson, idx: int) =
   if bs.kind == BsonKindArray:
     bs.valueArray.del(idx)
   else:
-    wrongNodeKind(bs, BsonKindArray)
+    wrongKind(bs, BsonKindArray)
 
 proc `{}`*(b: Bson, keys: varargs[string]): Option[Bson] =
   var b = b
@@ -609,16 +630,16 @@ proc `{}=`*(bs: Bson, keys: varargs[string], value: Bson) =
 iterator items*(bs: Bson): Bson =
   ## Iterate over Bson document or array fields
   if bs.kind == BsonKindDocument:
-    for _, v in bs.valueDocument:
+    for v in bs.valueDocument.values:
       yield v
   elif bs.kind == BsonKindArray:
-    for item in bs.valueArray:
+    for item in bs.valueArray.items:
       yield item
 
 iterator pairs*(bs: Bson): tuple[key: string, val: Bson] =
   ## Iterate over Bson document
   if bs.kind == BsonKindDocument:
-    for k, v in bs.valueDocument:
+    for k, v in bs.valueDocument.pairs:
       yield (k, v)
 
 proc contains*(bs: Bson, key: string): bool =
@@ -657,7 +678,7 @@ proc newBsonDocument*(s: Stream): Bson =
       doc.valueArray.add(nil)
       sub = addr doc.valueArray[^1]
     else:
-      wrongNodeKind(doc, {BsonKindArray, BsonKindDocument})
+      wrongKind(doc, {BsonKindArray, BsonKindDocument})
 
     case kind:
     of BsonKindDouble:
@@ -733,13 +754,12 @@ proc newBsonDocument*(s: Stream): Bson =
     else:
       raise BsonError.newException "Unexpected kind: " & $kind
 
-when false:
-  proc initBsonDocument*(stream: Stream): Bson {.deprecated.} =
-    newBsonDocument(stream)
+proc initBsonDocument*(stream: Stream): Bson =
+  newBsonDocument(stream)
 
-  proc initBsonDocument*(bytes: string): Bson {.deprecated.} =
-    ## Create new Bson document from byte string
-    newBsonDocument(newStringStream(bytes))
+proc initBsonDocument*(bytes: string): Bson =
+  ## Create new Bson document from byte string
+  newBsonDocument(newStringStream(bytes))
 
 proc newBsonDocument*(bytes: string): Bson =
   ## Create new Bson document from byte string
@@ -866,43 +886,3 @@ proc update*(a, b: Bson)=
     for k, v in b:
       if a[k].isNil:
         a[k] = v
-
-when isMainModule:
-  echo "Testing nimongo/bson.nim module..."
-  let oid = genOid()
-  let bdoc: Bson = %*{
-    "image": bin("12312l3jkalksjslkvdsdas"),
-    "balance":       1000.23,
-    "name":          "John",
-    "someId":        oid,
-    "someTrue":      true,
-    "surname":       "Smith",
-    "someNull":      null(),
-    "minkey":        minkey(),
-    "maxkey":        maxkey(),
-    "digest":        "".toMd5(),
-    "regexp-field":  regex("pattern", "ismx"),
-    "undefined":     undefined(),
-    "someJS":        js("function identity(x) {return x;}"),
-    "someRef":       dbref("db.col", genOid()),
-    "userDefined":   binuser("some-binary-data"),
-    "someTimestamp": BsonTimestamp(increment: 1, timestamp: 1),
-    "utcTime":       timeUTC(getTime()),
-    "subdoc": %*{
-      "salary": 500
-    },
-    "array": [
-      %*{"string": "hello"},
-      %*{"string" : "world"}
-    ]
-  }
-
-  echo bdoc
-  let bbytes = bdoc.bytes()
-  let recovered = newBsonDocument(bbytes)
-  echo "RECOVERED: ", recovered
-
-  var bdoc2 = newBsonArray()
-  bdoc2.add(2)
-  bdoc2.add(2)
-  echo bdoc2

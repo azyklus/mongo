@@ -36,9 +36,9 @@ suite "Mongo instance administration commands test suite":
     check drop sdb
 
   test "Command: 'listDatabases'":
-    checkOk sco.insert(%*{"test": "test"})
+    check "testdb" notin sm.keys.toSeq
+    check sco.insert(%*{})
     check "testdb" in sm.keys.toSeq
-    checkOk sco.remove(%*{"test": "test"}, limit=1)
 
   test "Command: 'create' collection":
     checkOk sdb.createCollection("smanual")
@@ -50,7 +50,10 @@ suite "Mongo instance administration commands test suite":
   test "Command: 'renameCollection'":
     check sco.insert(%*{})
     check sco.rename "syncnew"
+    check "syncnew" in sdb.keys.toSeq
     check sco.rename "sync"
+    check "sync" in sdb.keys.toSeq
+    check "syncnew" notin sdb.keys.toSeq
 
 suite "Mongo connection error-handling operations":
   test "Command: 'getLastError'":

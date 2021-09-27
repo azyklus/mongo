@@ -97,3 +97,15 @@ suite "testing expression generation":
       "bif": {"$all": [1, 2, 3]},
     }
     check $b == $c
+
+  block:
+    ## duplicate keys
+    let b =
+      expr:
+        foo == 3
+        foo > 2
+    let c = %*{
+      "foo": {"$eq": 3},
+      "foo": {"$gt": 2},
+    }
+    check $b == $c

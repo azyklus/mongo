@@ -1,3 +1,7 @@
+import std/times
+import std/md5
+import std/oids
+
 import balls
 
 import mongo/bson
@@ -116,3 +120,42 @@ suite "BSON serializer/deserializer test suite":
     })
 
     check(arr.len == 1)
+
+  test "miscellaneous":
+    let oid = genOid()
+    let bdoc: Bson = %*{
+      "image": bin("12312l3jkalksjslkvdsdas"),
+      "balance":       1000.23,
+      "name":          "John",
+      "someId":        oid,
+      "someTrue":      true,
+      "surname":       "Smith",
+      "someNull":      null(),
+      "minkey":        minkey(),
+      "maxkey":        maxkey(),
+      "digest":        "".toMd5(),
+      "regexp-field":  regex("pattern", "ismx"),
+      "undefined":     undefined(),
+      "someJS":        js("function identity(x) {return x;}"),
+      "someRef":       dbref("db.col", genOid()),
+      "userDefined":   binuser("some-binary-data"),
+      "someTimestamp": BsonTimestamp(increment: 1, timestamp: 1),
+      "utcTime":       timeUTC(getTime()),
+      "subdoc": %*{
+        "salary": 500
+      },
+      "array": [
+        %*{"string": "hello"},
+        %*{"string" : "world"}
+      ]
+    }
+
+    checkpoint bdoc
+    let bbytes = bdoc.bytes()
+    let recovered = newBsonDocument(bbytes)
+    checkpoint "RECOVERED: ", recovered
+
+    var bdoc2 = newBsonArray()
+    bdoc2.add(2)
+    bdoc2.add(2)
+    checkpoint bdoc2
