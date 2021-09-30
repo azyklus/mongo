@@ -16,6 +16,7 @@ when compileOption("threads"):
   import std/locks
 
 const
+  mongoTls* = defined(ssl)
   mongoVerifyPeer* {.booldefine.} = true
   mongoCaFile* {.strdefine, used.} = ""
   mongoDefaultHost* = "127.0.0.1"
@@ -128,28 +129,35 @@ template lockIfThreads(body: untyped): untyped =
   else:
     body
 
-when defined(ssl) or defined(nimdoc):
+proc setSsl*(sslinfo: SslInfo): SslContext =
+  ## Create (and maybe validate) an SSL context with cert/key files.
+  when defined(ssl):
+    # honor an override of the cert file
+    template cafile: string =
+      when mongoCaFile == "": sslinfo.certfile
+      else: mongoCaFile
+    let mode =
+      when mongoVerifyPeer:                            # user wants verify
+        when defined(nimDisableCertificateValidation): # nim says `no`
+          {.warning: "nim disabled certificate validation".}
+        CVerifyPeerUseEnvVars
+      else:
+        CVerifyNone
+
+    # instantiating the context will also perform certificate verification
+    let c = newContext(protVersion = sslinfo.protocol, verifyMode = mode,
+                       certfile = cafile, keyfile = sslinfo.keyfile)
+    if c.isNil:
+      raise ValueError.newException "unable to initialize ssl context"
+    else:
+      result = c
+
+when defined(ssl):
   proc initSslInfo*(keyfile, certfile: string, prot = protSSLv23): SSLInfo =
     ## Init the SSLinfo which give default value of protocol to
     ## protSSLv23. It's preferable used when user want to use
     ## SSL/TLS connection.
-    result =
-      SSLInfo(keyfile: keyfile, certfile: certfile, protocol: prot)
-
-proc setSsl*(sslinfo: SslInfo): SslContext =
-  ## Create (and maybe validate) an SSL context with cert/key files.
-  when defined(ssl):
-    let mode =
-      when mongoVerifyPeer: CVerifyPeer
-                      else: CVerifyNone
-    result =
-      newContext(protVersion = sslinfo.protocol, verifyMode = mode,
-                 certfile = sslinfo.certfile, keyfile = sslinfo.keyfile)
-    when mongoVerifyPeer:
-      template cafile: cstring =
-        when mongoCaFile == "": sslinfo.certfile.cstring
-        else: mongoCaFile.cstring
-      discard result.context.SSL_CTX_load_verify_locations(cafile, nil)
+    SSLInfo(keyfile: keyfile, certfile: certfile, protocol: prot)
 
 method initSslInfo(m: MongoBase): SSLInfo {.base.} =
   ## Prepare SSLInfo for setSsl().
@@ -159,7 +167,7 @@ method initSslInfo(m: MongoBase): SSLInfo {.base.} =
         protSSLv23
       else:
         parseEnum[SslProtVersion](mongoSslProtocol)
-    result = SSLInfo(protocol: prot)
+    result = initSslInfo("", "", prot)
 
   # we don't have any of this option infrastructure
   when false:
@@ -173,6 +181,9 @@ method initSslInfo(m: MongoBase): SSLInfo {.base.} =
 
     if "tlsCertificateKeyFile".toLower in tbl:
       result.setCertKey tbl["tlsCertificateKeyFile".toLower]
+
+method `sslInfo=`*(m: MongoBase; info: SSLInfo) {.base.} =
+  m.info = info
 
 method checkTlsValidity*(m: MongoBase) {.base.} =
   # we don't do any of this yet
@@ -222,11 +233,9 @@ method init*(mb: MongoBase; url: Uri) {.base.} =
       "unsupported scheme `$#`; expected ($#)" %
         [ url.scheme, schemes.join("|") ]
 
-  const tls = defined(ssl)
-
   var replicas: seq[Replica]
   block:
-    when tls:
+    when mongoTls:
       if "+srv" in url.scheme:
         # populate the replicas by retrieving SRV records from DNS
         try:
@@ -234,7 +243,7 @@ method init*(mb: MongoBase; url: Uri) {.base.} =
           let reply = client.sendQuery("_mongodb._tcp." & url.hostname, SRV)
           for answer in reply.answers.items:
             let record = SRVRecord answer
-            replicas.add Replica(host: record.target, tls: tls,
+            replicas.add Replica(host: record.target, tls: mongoTls,
                                  port: record.port.Port)
         except TimeoutError as e:
           raise MongoError.newException "DNS timeout: " & e.msg
@@ -253,7 +262,7 @@ method init*(mb: MongoBase; url: Uri) {.base.} =
   if db != "":
     mb.db = db
   mb.needAuth = (mb.username != "" and mb.db != "")
-  mb.info = initSslInfo mb
+  mb.sslInfo = initSslInfo mb
 
 proc info*(mb: MongoBase): SslInfo =
   ## Retrieve the cert/key files and SSL protocol selection.
