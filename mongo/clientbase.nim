@@ -1,17 +1,26 @@
 import std/os
 import std/strutils
 import std/uri
+import std/net
+
+when defined(ssl):
+  import std/openssl
+  import pkg/dnsclient
 
 import mongo/bson except `()`
 import mongo/writeconcern
 import mongo/proto
+import mongo/errors
 
 when compileOption("threads"):
   import std/locks
 
 const
-  DefaultMongoHost* = "127.0.0.1"
-  DefaultMongoPort* = 27017'u16  ## Default MongoDB IP Port
+  mongoVerifyPeer* {.booldefine.} = true
+  mongoCaFile* {.strdefine, used.} = ""
+  mongoDefaultHost* = "127.0.0.1"
+  mongoDefaultPort* = 27017.Port ## Default MongoDB IP Port
+  mongoSslProtocol* {.strdefine, used.} = ""
 
   TailableCursor*  = 1'i32 shl 1 ## Leave cursor alive on MongoDB side
   SlaveOk*         = 1'i32 shl 2 ## Allow to query replica set slaves
@@ -40,10 +49,18 @@ const
   ## AwaitData and thus always sets AwaitCapable.
 
 type
-  ClientKind* = enum           ## Kind of client communication type
-    ClientKindBase  = 0
-    ClientKindSync  = 1
-    ClientKindAsync = 2
+  SslInfo* = object
+    ## SslInfo will handle information for connecting with SSL/TLS
+    ## connection.
+    keyfile*: string            ## Key file path
+    certfile*: string           ## Certificate file path
+    when defined(ssl):
+      protocol*: SslProtVersion ## The SSL/TLS protocol
+
+  Replica* = object
+    host*: string
+    port*: Port
+    tls*: bool
 
   MongoBase* = ref object of RootObj ## Base for Mongo clients
     when compileOption("threads"):
@@ -51,16 +68,15 @@ type
       requestId {.guard: reqIdLock.}: int32
     else:
       requestId:    int32
-    host:         string
-    port:         uint16
-    queryFlags:   int32
-    username:     string
-    password:     string
-    db:           string
-    needAuth:     bool
+    queryFlags: int32
+    username: string
+    password: string
+    db: string
+    needAuth: bool
     authenticated: bool
-    replicas:     seq[tuple[host: string, port: uint16]]
+    replicas: seq[Replica]
     writeConcern: WriteConcern
+    info: SslInfo
 
   Database*[T] = ref DatabaseObj[T]
   DatabaseObj*[T] = object ## MongoDB database object
@@ -112,13 +128,69 @@ template lockIfThreads(body: untyped): untyped =
   else:
     body
 
-method init*(mb: MongoBase, host: string, port: uint16) {.base.} =
-  mb.host = host
-  mb.port = port
+when defined(ssl) or defined(nimdoc):
+  proc initSslInfo*(keyfile, certfile: string, prot = protSSLv23): SSLInfo =
+    ## Init the SSLinfo which give default value of protocol to
+    ## protSSLv23. It's preferable used when user want to use
+    ## SSL/TLS connection.
+    result =
+      SSLInfo(keyfile: keyfile, certfile: certfile, protocol: prot)
+
+proc setSsl*(sslinfo: SslInfo): SslContext =
+  ## Create (and maybe validate) an SSL context with cert/key files.
+  when defined(ssl):
+    let mode =
+      when mongoVerifyPeer: CVerifyPeer
+                      else: CVerifyNone
+    result =
+      newContext(protVersion = sslinfo.protocol, verifyMode = mode,
+                 certfile = sslinfo.certfile, keyfile = sslinfo.keyfile)
+    when mongoVerifyPeer:
+      template cafile: cstring =
+        when mongoCaFile == "": sslinfo.certfile.cstring
+        else: mongoCaFile.cstring
+      discard result.context.SSL_CTX_load_verify_locations(cafile, nil)
+
+method initSslInfo(m: MongoBase): SSLInfo {.base.} =
+  ## Prepare SSLInfo for setSsl().
+  when defined(ssl):
+    let prot =
+      if mongoSslProtocol == "":
+        protSSLv23
+      else:
+        parseEnum[SslProtVersion](mongoSslProtocol)
+    result = SSLInfo(protocol: prot)
+
+  # we don't have any of this option infrastructure
+  when false:
+    proc setCertKey (s: var SslInfo, vals: seq[string]) =
+      for kv in vals:
+        let kvs = kv.split ':'
+        if kvs[0].toLower == "certificate":
+          s.certfile = decodeUrl kvs[1]
+        elif kvs[0].toLower == "key":
+          s.keyfile = decodeUrl kvs[1]
+
+    if "tlsCertificateKeyFile".toLower in tbl:
+      result.setCertKey tbl["tlsCertificateKeyFile".toLower]
+
+method checkTlsValidity*(m: MongoBase) {.base.} =
+  # we don't do any of this yet
+  when false:
+    let tlsCertInval = ["tlsInsecure", "tlsAllowInvalidCertificates"]
+    let tlsHostInval = ["tlsInsecure", "tlsAllowInvalidHostnames"]
+    if tlsCertInval.allIt(it.toLower in m.query):
+      raise MongoError.newException:
+        "Can't have " & tlsCertInval.join(" and ")
+    if tlsHostInval.allIt(it.toLower in m.query):
+      raise MongoError.newException:
+        "Can't have " & tlsHostInval.join(" and ")
+
+method init*(mb: MongoBase) {.base.} =
   lockIfThreads:
     mb.requestID = 0
   mb.queryFlags = 0
-  mb.replicas = @[]
+  mb.replicas.setLen 0
   mb.username = ""
   mb.password = ""
   mb.db = "admin"
@@ -126,27 +198,78 @@ method init*(mb: MongoBase, host: string, port: uint16) {.base.} =
   mb.authenticated = false
   mb.writeConcern = writeConcernDefault()
 
-method init*(b: MongoBase, u: Uri) {.base.} =
-  let port =
-    if u.port.len > 0:
-      parseInt(u.port).uint16
+method init*(mb: MongoBase; replicas: openArray[Replica]) {.base.} =
+  init mb
+  mb.replicas.setLen replicas.len
+  for i, replica in mb.replicas.mpairs:  # workaround nim bug
+    replica = replicas[i]
+
+proc parsePort(url: Uri): Port =
+  if url.port.len > 0:
+    parseInt(url.port).Port
+  else:
+    mongoDefaultPort
+
+method init*(mb: MongoBase; url: Uri) {.base.} =
+  const schemes =
+    when defined(ssl):
+      ["mongodb", "mongo", "mongodb+srv", "mongo+srv"]
     else:
-      DefaultMongoPort
-  b.init(u.hostname, port)
-  b.username = u.username
-  b.password = u.password
-  let db = u.path.extractFilename()
+      ["mongodb", "mongo"]
+
+  if url.scheme notin schemes:
+    raise MongoError.newException:
+      "unsupported scheme `$#`; expected ($#)" %
+        [ url.scheme, schemes.join("|") ]
+
+  const tls = defined(ssl)
+
+  var replicas: seq[Replica]
+  block:
+    when tls:
+      if "+srv" in url.scheme:
+        # populate the replicas by retrieving SRV records from DNS
+        try:
+          let client = newDNSClient()
+          let reply = client.sendQuery("_mongodb._tcp." & url.hostname, SRV)
+          for answer in reply.answers.items:
+            let record = SRVRecord answer
+            replicas.add Replica(host: record.target, tls: tls,
+                                 port: record.port.Port)
+        except TimeoutError as e:
+          raise MongoError.newException "DNS timeout: " & e.msg
+        break
+    # use the provided hostname and port as the sole replica (no tls)
+    replicas.add Replica(host: url.hostname, port: parsePort url)
+
+  if replicas.len == 0:
+    raise MongoError.newException:
+      "unable to find replicas for `$#`" % [ url.hostname ]
+
+  mb.init replicas
+  mb.username = url.username
+  mb.password = url.password
+  let db = url.path.extractFilename()
   if db != "":
-    b.db = db
-  b.needAuth = (b.username != "" and b.db != "")
+    mb.db = db
+  mb.needAuth = (mb.username != "" and mb.db != "")
+  mb.info = initSslInfo mb
 
-proc host*(mb: MongoBase): string =
+proc info*(mb: MongoBase): SslInfo =
+  ## Retrieve the cert/key files and SSL protocol selection.
+  mb.info
+
+proc replicas*(mb: MongoBase): seq[Replica] =
+  ## Available replicas
+  mb.replicas
+
+proc host*(mb: MongoBase): string {.deprecated.} =
   ## Connected server host
-  mb.host
+  mb.replicas[0].host
 
-proc port*(mb: MongoBase): uint16 =
+proc port*(mb: MongoBase): uint16 {.deprecated.} =
   ## Connected server port
-  mb.port
+  mb.replicas[0].port.uint16
 
 proc username*(mb: MongoBase): string =
   ## Username to authenticate at Mongo Server
@@ -194,10 +317,6 @@ proc authenticated*(mb: MongoBase): bool =
 proc `authenticated=`*(mb: MongoBase, authenticated: bool) =
   ## Enable/disable authenticated flag for database
   mb.authenticated = authenticated
-
-method kind*(mb: MongoBase): ClientKind {.base.} =
-  ## Base Mongo client
-  ClientKindBase
 
 proc tailableCursor*(m: MongoBase, enable: bool = true): MongoBase =
   ## Enable/disable tailable behaviour for the cursor (cursor is not
@@ -258,7 +377,14 @@ proc allowPartial*(m: MongoBase, enable: bool = true): MongoBase =
 
 proc `$`*(m: MongoBase): string =
   ## Return full DSN for the Mongo connection
-  return "mongodb://$#:$#" % [m.host, $m.port]
+  var url: Uri
+  url.hostname = m.replicas[0].host
+  url.port = $m.replicas[0].port
+  url.scheme = if m.replicas[0].tls: "mongodb+srv" else: "mongodb"
+  url.path = m.authDb
+  url.username = m.username
+  url.password = m.password
+  result = $url
 
 proc `[]`*[T: MongoBase](client: T, dbName: string): Database[T] =
   ## Retrieves database from Mongo

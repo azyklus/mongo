@@ -25,8 +25,8 @@ type
   Context = object
     reader: Reader
     writer: Writer
-    host: string
-    port: Port
+    replica: Replica
+    info: SslInfo
 
   Mongo* = ref object of MongoBase    ## Mongo client object
     requestLock:                    SharedLock
@@ -74,39 +74,48 @@ proc newLockedSocket(): LockedSocket =
   result.reader = newSharedChannel[(int64, seq[Bson])]()
   result.writer = newSharedChannel[string]()
 
-proc handleResponses(context: Context) {.thread.}
+proc handleResponses(c: Context) {.thread.}
 
-proc initPool(m: var Mongo, maxConnections: int) =
+proc initPool(m: var Mongo; maxConnections: int) =
   m.threads = @[]
-  m.threads.setLen(maxConnections)
+  m.threads.setLen maxConnections
   m.requestLock = newSharedLock()
   withRequestLock:
     m.pool = newSeq[LockedSocket](maxConnections)
     for i in 0..<maxConnections:
       m.pool[i] = newLockedSocket()
       m.pool[i].id = i
+      let replica = m.replicas[i mod m.replicas.len]
       let context = Context(reader: m.pool[i].reader,
                             writer: m.pool[i].writer,
-                            host: m.host,
-                            port: Port m.port)
+                            info: m.info, replica: replica)
       createThread(m.threads[i], handleResponses, context)
       m.pool[i].connected = true
 
-proc newMongo*(host = "127.0.0.1"; port = DefaultMongoPort;
-               secure=false, maxConnections=16): Mongo =
+proc newMongo*(url: Uri, maxConnections=16): Mongo =
   ## Mongo client constructor
-  result.new()
-  result.init(host, port)
-  result.initPool(maxConnections)
+  new result
+  result.init url
+  result.initPool maxConnections
   result.current = -1
 
-proc newMongoWithURI*(u: Uri, maxConnections=16): Mongo =
-  result.new()
-  result.init(u)
-  result.initPool(maxConnections)
-  result.current = -1
+proc newMongo*(host = "127.0.0.1"; port = mongoDefaultPort;
+               secure=false, maxConnections=16): Mongo
+  {.deprecated: "use a uri".} =
+  var url: Uri
+  url.hostname = host
+  url.port = $port
+  url.scheme =
+    if secure: "mongodb+srv"
+         else: "mongodb"
+  result = newMongo(url, maxConnections = maxConnections)
 
-proc newMongoWithURI*(u: string, maxConnections=16): Mongo =
+proc newMongoWithURI*(u: Uri, maxConnections=16): Mongo
+  {.deprecated: "use newMongo".} =
+  newMongo(u, maxConnections = maxConnections)
+
+proc newMongoWithURI*(u: string, maxConnections=16): Mongo
+  {.deprecated: "use a uri".} =
   newMongoWithURI(parseUri(u), maxConnections)
 
 proc authenticateScramSha1(db: Database[Mongo]; username, password: string;
@@ -125,7 +134,7 @@ proc acquire*(m: Mongo): LockedSocket =
             m.authenticated = s.authenticated
           s.inuse = true
           return s
-    sleep(500)
+    sleep(200)
 
 proc release*(m: Mongo, ls: LockedSocket) =
   withRequestLock:
@@ -133,10 +142,6 @@ proc release*(m: Mongo, ls: LockedSocket) =
       ls.inuse = false
     else:
       raise newException(ValueError, "Socket can't be released twice")
-
-method kind*(sm: Mongo): ClientKind =
-  ## Sync Mongo client
-  ClientKindSync
 
 proc connect*(m: Mongo): bool =
   ## Establish connection with Mongo server
@@ -153,7 +158,6 @@ proc newMongoDatabase*(u: Uri): Database[Mongo] {.deprecated.} =
       for s in m.pool:
         s.authenticated =
           result.authenticateScramSha1(m.username, m.password, s)
-
 
 proc consumeReply(reader: Reader; data: string) =
   ## consume a reply and send cursorId and bson documents to reader
@@ -193,14 +197,26 @@ proc readExactly(sock: Socket; buffer: var string; want: Natural) =
       "wanted $# but received only $#" %
         [ $want, $(buffer.len - existing) ]
 
-proc handleResponses(context: Context) {.thread.} =
-  let (reader, writer, host, port) =
-    (context.reader, context.writer, context.host, context.port)
+proc handleResponses(c: Context) {.thread.} =
+  ## this thread takes a Context to configure the connection, which also
+  ## has the channels which we'll use to communicate with the client
   let sock = newSocket()
-  sock.connect(host, port)
+
+  # if the replica requires ssl,
+  if c.replica.tls:
+    # create the ssl context using our client-specific cert/key files,
+    let ctx = setSsl c.info
+    # and wrap the socket
+    ctx.wrapSocket sock
+
+  # connect to the replica
+  sock.connect(c.replica.host, c.replica.port)
+
   var data: string  # prevent continuous reallocation of string buffers
+
+  # service the connection until the client gives us an empty message
   while true:
-    let pcktToSend = writer[].recv()
+    let pcktToSend = c.writer[].recv()
     if pcktToSend == "":
       break
     if not sock.trySend(pcktToSend):
@@ -220,7 +236,7 @@ proc handleResponses(context: Context) {.thread.} =
     sock.readExactly(data, messageLength)
 
     # deliver the response to the reader
-    consumeReply(reader, data)
+    consumeReply(c.reader, data)
 
 proc refresh*(f: Cursor[Mongo], lockedSocket: LockedSocket = nil): seq[Bson] =
   ## Private procedure for performing actual query to Mongo
@@ -283,7 +299,10 @@ proc authenticateScramSha1(db: Database[Mongo]; username, password: string;
     "saslStart": 1'i32,
     "mechanism": "SCRAM-SHA-1",
     "payload": bin(clientFirstMessage),
-    "autoAuthorize": 1'i32
+    "autoAuthorize": 1'i32,
+    "options": {
+      "skipEmptyExchange": true,
+    },
   }
   let responseStart = db["$cmd"].makeQuery(requestStart).one(ls)
 
@@ -309,7 +328,7 @@ proc authenticateScramSha1(db: Database[Mongo]; username, password: string;
 
   let payload = binstr(responseContinue1["payload"])
   if not scramClient.verifyServerFinalMessage(payload):
-    raise Exception.newException "Server returned an invalid signature."
+    raise MongoError.newException "Server returned an invalid signature."
 
   # Depending on how it's configured, Cyrus SASL (which the server uses)
   # requires a third empty challenge.
@@ -321,5 +340,5 @@ proc authenticateScramSha1(db: Database[Mongo]; username, password: string;
     }
     let responseContinue2 = db["$cmd"].makeQuery(requestContinue2).one(ls)
     if not responseContinue2["done"].toBool:
-      raise Exception.newException "SASL conversation failed to complete."
+      raise MongoError.newException "SASL conversation failed to complete."
   return true

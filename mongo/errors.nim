@@ -13,3 +13,8 @@ type
 
   OperationTimeout* = object of MongoError
     ## Raises when operation required error occurs
+
+template raiseIfMissingSsl*(): untyped =
+  ## raise a "missing ssl" error when ssl is missing
+  when not defined(ssl):
+    raise MongoError.newException "use --define:ssl to enable ssl/tls"

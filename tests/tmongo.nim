@@ -1,3 +1,4 @@
+import std/uri
 import std/sequtils
 import std/oids
 import std/strutils
@@ -16,7 +17,8 @@ const
   TestCol  = "testcol"
 
 var
-  sm: Mongo = newMongo(maxConnections=2)           ## Mongo synchronous client
+  url = parseUri "mongodb://localhost:27017/" & TestDB
+  sm: Mongo = newMongo(url, maxConnections=2)
 
 let
   sdb: Database[Mongo] = sm[TestDB]
@@ -109,7 +111,9 @@ suite "Mongo client operations test suite":
     discard drop sco
 
   test "Mongo object `$` operator":
-    check($sm == "mongodb://127.0.0.1:27017")
+    checkpoint "url: ", $url
+    checkpoint " sm: ", $sm
+    check($sm == $url)
 
   test "Taking database":
     check($sdb == "testdb")

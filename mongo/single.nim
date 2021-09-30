@@ -31,10 +31,10 @@ proc initPool(m: var Mongo) =
   m.pool = newSeq[LockedSocket](1)
   m.pool[0] = newLockedSocket()
 
-proc newMongo*(host: string = "127.0.0.1", port: uint16 = DefaultMongoPort, secure=false, maxConnections=16): Mongo =
+proc newMongo*(host = "127.0.0.1", port = mongoDefaultPort, secure=false, maxConnections=16): Mongo =
   ## Mongo client constructor
   result.new()
-  result.init(host, port)
+  result.init(@[Replica(host: host, port: port, tls: secure)])
   result.initPool()
 
 proc newMongoWithURI*(u: Uri, maxConnections=16): Mongo =
