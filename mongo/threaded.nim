@@ -67,30 +67,29 @@ template withRequestLock(body: untyped): untyped =
   finally:
     m.requestLock[].release()
 
-proc newLockedSocket(): LockedSocket =
+proc newLockedSocket(id: int; connected = true): LockedSocket =
   ## Constructor for "locked" socket
-  result.new()
+  new result
   result.init()
   result.reader = newSharedChannel[(int64, seq[Bson])]()
   result.writer = newSharedChannel[string]()
+  result.id = id
+  result.connected = connected
 
 proc handleResponses(c: Context) {.thread.}
 
 proc initPool(m: var Mongo; maxConnections: int) =
-  m.threads = @[]
-  m.threads.setLen maxConnections
+  ## initialize the pool with maxConnections per replica
+  m.threads = newSeq[Thread[Context]](maxConnections * m.replicas.len)
   m.requestLock = newSharedLock()
   withRequestLock:
-    m.pool = newSeq[LockedSocket](maxConnections)
-    for i in 0..<maxConnections:
-      m.pool[i] = newLockedSocket()
-      m.pool[i].id = i
+    m.pool = newSeq[LockedSocket](m.threads.len)
+    for i, pool in m.pool.mpairs:
+      pool = newLockedSocket(i)
       let replica = m.replicas[i mod m.replicas.len]
-      let context = Context(reader: m.pool[i].reader,
-                            writer: m.pool[i].writer,
+      let context = Context(reader: pool.reader, writer: pool.writer,
                             info: m.info, replica: replica)
       createThread(m.threads[i], handleResponses, context)
-      m.pool[i].connected = true
 
 proc newMongo*(url: Uri, maxConnections=16): Mongo =
   ## Mongo client constructor

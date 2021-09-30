@@ -230,7 +230,7 @@ method init*(mb: MongoBase; url: Uri) {.base.} =
       if "+srv" in url.scheme:
         # populate the replicas by retrieving SRV records from DNS
         try:
-          let client = newDNSClient()
+          let client = newDNSClient(getEnv("DNS_SERVER", "8.8.8.8"))
           let reply = client.sendQuery("_mongodb._tcp." & url.hostname, SRV)
           for answer in reply.answers.items:
             let record = SRVRecord answer
