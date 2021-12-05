@@ -69,8 +69,6 @@ proc release*(m: Mongo, ls: LockedSocket) =
   else:
     raise newException(ValueError, "Socket can't be released twice")
 
-method kind*(sm: Mongo): ClientKind = ClientKindSync       ## Sync Mongo client
-
 proc connect*(m: Mongo): bool =
   ## Establish connection with Mongo server
   let s = m.acquire()

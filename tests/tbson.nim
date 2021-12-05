@@ -4,7 +4,25 @@ import std/oids
 
 import balls
 
-import mongo/bson
+import ../mongo/bson
+
+type
+  CustomType = object
+    value*: string
+  CustomTypeWrapper = object
+    custom*: CustomType
+  TypeWithDateTime = object
+    tm*: DateTime
+  TypeWithOmitEmptyField = object
+    `"_id"`*{.omitempty.}: Oid
+    tm*{.omitempty.}: DateTime
+    normal*: string
+    
+proc to(b: Bson, c: var CustomType) =
+  doAssert b.kind == BsonKindStringUTF8
+  c = CustomType(value: b.toString)
+
+proc toBson(c: CustomType) : Bson {.inline.} = result = c.value.toBson
 
 suite "BSON serializer/deserializer test suite":
 
@@ -120,6 +138,55 @@ suite "BSON serializer/deserializer test suite":
     })
 
     check(arr.len == 1)
+
+  test "Custom Deserialization":    
+    let bdoc: Bson = %*{
+      "custom": "foobar"
+    }
+    let val = bdoc.to(CustomTypeWrapper)
+    checkpoint val
+
+    check(val.custom.value == "foobar")
+    
+    let bdoc2 = val.toBson
+    checkpoint bdoc2
+
+    check(bdoc2["custom"].toString == "foobar")
+  
+  test "Serialize/Deserialize DateTime":
+    let obj = TypeWithDateTime(tm: parse("2000-01-01", "yyyy-MM-dd"))
+    let bdoc = toBson(obj)
+    checkpoint bdoc
+
+    var obj2 = bdoc.to(TypeWithDateTime)
+    checkpoint obj2
+    check(obj2.tm == obj.tm)
+
+    let bdoc2 = TypeWithDateTime().toBson
+    checkpoint bdoc2
+
+    obj2 = bdoc2.to(TypeWithDateTime)
+    checkpoint obj2
+    check(obj2.tm == fromUnix(0).utc)
+  
+  test "Serialize/Deserialize fields with omitempty tag":
+    var obj = TypeWithOmitEmptyField(normal: "foobar")
+    var bdoc = obj.toBson
+    checkpoint bdoc
+
+    check("_id" notin bdoc)
+    check("tm" notin bdoc)
+    check(bdoc["normal"].toString == "foobar")
+
+    let obj2 = bdoc.to(TypeWithOmitEmptyField)
+    checkpoint obj2
+    check(obj == obj2)
+
+    obj = TypeWithOmitEmptyField(`"_id"`: genOid(), tm: parse("2000-01-01", "yyyy-MM-dd"))
+    bdoc = obj.toBson
+    check("_id" in bdoc)
+    check("tm" in bdoc)
+    check("normal" in bdoc)
 
   test "miscellaneous":
     let oid = genOid()
