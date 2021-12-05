@@ -767,14 +767,39 @@ proc newBsonDocument*(bytes: string): Bson =
 
 ## Serialization/deserialization ext
 
+# ------------- type: Serializer/Deserializer -------------------#
+
+type
+  BsonSerializer* = concept s
+    ## type that can serialize itself to a bson object (implemented by all primitive types)
+    s.toBson() is Bson
+  BsonDeserializer* = concept d
+    ## type that can deserialize a bson type to itself
+    Bson.to(d)
+
 template dbKey*(name: string) {.pragma.}
+template omitempty*() {.pragma.}
+
+proc toBson*(d: DateTime) : Bson =
+  ## Serializer for DateTime type
+  if not d.isInitialized: result = fromUnix(0).toBson ## Uninitialized Datetime is set to 0s after unix epoch time
+  else: result = d.utc.toTime.toBson
+
+proc to*(b: Bson, o: var Oid) {.inline.} =
+  ## Deserializer implementation for oid
+  o = b.toOid
+proc to*(b: Bson, d: var DateTime) {.inline.} =
+  ## Deserializer implementation for DateTime
+  d = b.toTime.utc
 
 proc to*(b: Bson, T: typedesc): T =
-  when T is seq:
+  when T is BsonDeserializer:
+    b.to(result)
+  elif T is seq:
     result.setLen(b.len)
     var i = 0
     for c in b:
-      result[i] = c.to(type(result[i]))
+      result[i] = c.to(typeof(result[i]))
       inc i
   elif T is string:
     result = b.toString
@@ -798,9 +823,9 @@ proc to*(b: Bson, T: typedesc): T =
     proc valAUXType[K, V](arr: Table[K, V] | TableRef[K, V]): V = discard
     proc keyAUXType[K, V](arr: Table[K, V] | TableRef[K, V]): K = discard
     when T is TableRef:
-      result = newTable[type(result.keyAUXType), type(result.valAUXType)]()
+      result = newTable[typeof(result.keyAUXType), typeof(result.valAUXType)]()
     for k, v in b:
-      result[k] = v.to(type(result.valAUXType))
+      result[k] = v.to(typeof(result.valAUXType))
   elif T is ref object:
     if b.kind == BsonKindNull:
       return nil
@@ -809,17 +834,19 @@ proc to*(b: Bson, T: typedesc): T =
       var key = k
       when val.hasCustomPragma(dbKey):
         key = val.getCustomPragmaVal(dbKey)
-      if key notin b:
+      if key in b:
+        val = b[key].to(typeof(val))
+      elif not val.hasCustomPragma(omitempty):
         raise BsonError.newException "Key " & key & " not found for " & $T
-      val = b[key].to(type(val))
   elif T is object|tuple:
     for k, val in fieldPairs(result):
       var key = k
       when val.hasCustomPragma(dbKey):
         key = val.getCustomPragmaVal(dbKey)
-      if key notin b:
+      if key in b:
+        val = b[key].to(typeof(val))
+      elif not val.hasCustomPragma(omitempty):
         raise BsonError.newException "Key " & key & " not found for " & $T
-      val = b[key].to(type(val))
   else:
     {.error: "Unknown type".}
 
@@ -841,9 +868,15 @@ proc toBson*[T](entry: T): Bson =
     result = newBsonDocument()
     for k, v in fieldPairs(entry):
       when v.hasCustomPragma(dbKey):
-        result[v.getCustomPragmaVal(dbKey)] = toBson(v)
+        when v.hasCustomPragma(omitempty):
+          if default(typeof(v)) != v:
+            result[v.getCustomPragmaVal(dbKey)] = toBson(v)
+        else: result[v.getCustomPragmaVal(dbKey)] = toBson(v)
       else:
-        result[k] = toBson(v)
+        when v.hasCustomPragma(omitempty):
+          if default(typeof(v)) != v:
+            result[k] = toBson(v)
+        else: result[k] = toBson(v)
   elif T is enum:
     result = toBson($entry)
   elif T is int8|int16|uint8|uint16|uint32:
