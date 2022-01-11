@@ -141,6 +141,16 @@ suite "Mongo client operations test suite":
     check sco.update(selector, updater, false, false)
     check sco.find(%*{"integer": "string"}).items.toSeq.len == 1
 
+  test "Find and modify single document":
+    let
+      selector = %*{"integer": "integer"}
+      updater  = %*{"$set": {"integer": "string"}}
+    check sco.insert(@[selector, selector])
+    let
+      updated = sco.findAndModify(selector, sort=nil, update=updater,
+                                  afterUpdate=true, upsert=false)
+    check sco.find(%*{"integer": "string"}).items.toSeq.len == 1
+
   test "Update multiple documents":
     let
       selector = %*{"integer": 100'i32}
