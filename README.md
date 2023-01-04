@@ -1,9 +1,9 @@
 # mongo
 
-[![Test Matrix](https://github.com/sesco-llc/mongo/workflows/CI/badge.svg)](https://github.com/sesco-llc/mongo/actions?query=workflow%3ACI)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/sesco-llc/mongo?style=flat)](https://github.com/sesco-llc/mongo/releases/latest)
+[![Test Matrix](https://github.com/disruptek/mongo/workflows/CI/badge.svg)](https://github.com/disruptek/mongo/actions?query=workflow%3ACI)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/disruptek/mongo?style=flat)](https://github.com/disruptek/mongo/releases/latest)
 ![Minimum supported Nim version](https://img.shields.io/badge/nim-1.9.1%2B-informational?style=flat&logo=nim)
-[![License](https://img.shields.io/github/license/sesco-llc/mongo?style=flat)](#license)
+[![License](https://img.shields.io/github/license/disruptek/mongo?style=flat)](#license)
 
 It's a fork of `nimongo` for production use.
 
