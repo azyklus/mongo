@@ -1,12 +1,16 @@
 # mongo
 
+[![Test Matrix](https://github.com/sesco-llc/mongo/workflows/CI/badge.svg)](https://github.com/sesco-llc/mongo/actions?query=workflow%3ACI)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/sesco-llc/mongo?style=flat)](https://github.com/sesco-llc/mongo/releases/latest)
+![Minimum supported Nim version](https://img.shields.io/badge/nim-1.9.1%2B-informational?style=flat&logo=nim)
+[![License](https://img.shields.io/github/license/sesco-llc/mongo?style=flat)](#license)
+
 It's a fork of `nimongo` for production use.
 
 ## Usage Notes
 
-- [x] threads:on
 - [x] define:ssl
-- [x] gc:arc
+- [x] mm:arc
 
 Set the `DNS_SERVER` environmental variable to force a specific DNS server
 for the purposes of replica resolution.
