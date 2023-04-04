@@ -3,7 +3,7 @@ version     = "0.7.0"
 license     = "MIT"
 author      = "Rostyslav Dzinko <rostislav.dzinko@gmail.com>; all bugs provided by disruptek"
 
-requires "scram >= 0.1.13"
+requires "https://github.com/ba0f3/scram.nim#head"
 requires "https://github.com/azyklus/adix#head"
 requires "https://github.com/disruptek/assume"
 requires "https://github.com/ba0f3/dnsclient.nim >= 0.1.1 & < 1.0.0"
